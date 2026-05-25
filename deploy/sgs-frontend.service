@@ -1,0 +1,16 @@
+[Unit]
+Description=SGS Next.js frontend
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/swathi
+Environment=NODE_ENV=production
+Environment=PORT=3004
+EnvironmentFile=/home/ubuntu/swathi/.env.production
+ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1 --port 3004
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { getApiBaseUrl } from "./api-base-url";
 
 const chapterSubjects = ["Social Science", "Maths", "Hindi", "Telugu"];
 const chapterLessons = ["Lesson 1", "Lesson 2", "Lesson 3", "Lesson 5", "Lesson 6", "Lesson 7", "Lesson 8", "Lesson 9", "Lesson 10"];
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = getApiBaseUrl();
 
 export default function ChapterSelector({ showReader = false }) {
   const [selectedSubject, setSelectedSubject] = useState("");

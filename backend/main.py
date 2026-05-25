@@ -21,14 +21,29 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 app = FastAPI(title="SGS Chapter Content API")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+
+def get_cors_origins() -> list[str]:
+    configured_origins = os.getenv("CORS_ALLOW_ORIGINS", "")
+    if configured_origins:
+        return [
+            origin.strip().rstrip("/")
+            for origin in configured_origins.split(",")
+            if origin.strip()
+        ]
+
+    return [
         "http://localhost:3000",
         "http://localhost:3001",
+        "http://localhost:3004",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
-    ],
+        "http://127.0.0.1:3004",
+    ]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -64,6 +79,19 @@ def get_connection():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/health/db")
+def database_health_check():
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1;")
+                cursor.fetchone()
+    except psycopg.Error as error:
+        raise HTTPException(status_code=503, detail="Database connection failed.") from error
+
+    return {"status": "ok", "database": "connected"}
 
 
 def build_learning_profile_payload(profile: LearningProfileInput):
@@ -116,10 +144,21 @@ def get_chapter_content(
         LIMIT 1;
     """
 
-    with get_connection() as connection:
-        with connection.cursor(row_factory=dict_row) as cursor:
-            cursor.execute(query, (chapter_id,))
-            row = cursor.fetchone()
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query, (chapter_id,))
+                row = cursor.fetchone()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Chapter content table is missing. Create sgs_chapter_content in PostgreSQL.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch chapter content.",
+        ) from error
 
     if row is None:
         raise HTTPException(

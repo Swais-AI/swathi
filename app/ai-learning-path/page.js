@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { getApiBaseUrl } from "../api-base-url";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = getApiBaseUrl();
 const STUDENT_ID = 23;
 
 const chapters = [
