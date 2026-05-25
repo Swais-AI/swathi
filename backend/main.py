@@ -153,7 +153,7 @@ def save_student_learning_profile(profile: LearningProfileInput):
     classification, path = build_learning_profile_payload(profile)
 
     query = """
-        INSERT INTO student_learning_profiles (
+        INSERT INTO sgs_student_learning_profiles (
             student_id,
             chapter_id,
             chapter_title,
@@ -221,7 +221,7 @@ def get_student_learning_profile(
 ):
     query = """
         SELECT *
-        FROM student_learning_profiles
+        FROM sgs_student_learning_profiles
         WHERE student_id = %s AND chapter_id = %s
         LIMIT 1;
     """

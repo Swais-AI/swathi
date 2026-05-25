@@ -1,7 +1,7 @@
 -- AI Learning Path tables for saving each student's chapter-level learner profile.
 -- Run this manually against PostgreSQL after configuring DATABASE_URL.
 
-CREATE TABLE IF NOT EXISTS student_learning_profiles (
+CREATE TABLE IF NOT EXISTS sgs_student_learning_profiles (
     id BIGSERIAL PRIMARY KEY,
     student_id INTEGER NOT NULL,
     chapter_id INTEGER NOT NULL,
@@ -14,17 +14,17 @@ CREATE TABLE IF NOT EXISTS student_learning_profiles (
     generated_path JSONB NOT NULL DEFAULT '{}'::JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT student_learning_profiles_student_chapter_unique UNIQUE (student_id, chapter_id)
+    CONSTRAINT sgs_student_learning_profiles_student_chapter_unique UNIQUE (student_id, chapter_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_student_learning_profiles_student_id
-    ON student_learning_profiles (student_id);
+CREATE INDEX IF NOT EXISTS idx_sgs_student_learning_profiles_student_id
+    ON sgs_student_learning_profiles (student_id);
 
-CREATE INDEX IF NOT EXISTS idx_student_learning_profiles_chapter_id
-    ON student_learning_profiles (chapter_id);
+CREATE INDEX IF NOT EXISTS idx_sgs_student_learning_profiles_chapter_id
+    ON sgs_student_learning_profiles (chapter_id);
 
 -- Sample testing data. Keep these INSERTs optional; remove or edit for production.
-INSERT INTO student_learning_profiles (
+INSERT INTO sgs_student_learning_profiles (
     student_id,
     chapter_id,
     chapter_title,
