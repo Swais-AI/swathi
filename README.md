@@ -2,6 +2,8 @@
 
 Student dashboard with a FastAPI backend and PostgreSQL content storage.
 
+For AWS EC2, Nginx, and RDS deployment, see [docs/EC2_DEPLOYMENT.md](docs/EC2_DEPLOYMENT.md).
+
 ## Frontend Setup
 
 ```bash
@@ -10,6 +12,11 @@ npm run dev
 ```
 
 The Next.js app runs at `http://localhost:3000` by default.
+Use another port when needed:
+
+```bash
+npm run dev -- --hostname 0.0.0.0 --port 3004
+```
 
 ## Backend Setup
 
@@ -22,6 +29,11 @@ uvicorn main:app --reload --port 8000
 ```
 
 The FastAPI backend runs at `http://localhost:8000`.
+Use another port when needed:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8004
+```
 
 ## Environment Variables
 
@@ -34,7 +46,15 @@ DATABASE_URL=postgresql://postgres:password@localhost:5432/sgs_db
 Optional frontend variable:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_API_BASE_URL=/api
+```
+
+`NEXT_PUBLIC_API_BASE_URL=/api` works best when Nginx proxies `/api/` to FastAPI, regardless of whether Nginx runs on port `80`, `84`, or another public port. For direct local development without Nginx, set it to the backend URL instead, for example `http://localhost:8000` or `http://localhost:8004`.
+
+Optional backend CORS variable for direct frontend-to-backend calls:
+
+```env
+CORS_ALLOW_ORIGINS=http://localhost:3000,http://localhost:3004,http://18.60.153.66:84
 ```
 
 Gemini AI provider variables:
@@ -78,7 +98,7 @@ Do not run migrations automatically. Apply the AI Learning Path migration manual
 psql "$DATABASE_URL" -f backend/migrations/001_ai_learning_path.sql
 ```
 
-The migration creates `student_learning_profiles` and includes sample rows for students `23`, `24`, and `25`.
+The migration creates `sgs_student_learning_profiles` and includes sample rows for students `23`, `24`, and `25`.
 
 ## Learning Profile APIs
 
