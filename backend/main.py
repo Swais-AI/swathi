@@ -13,10 +13,6 @@ from psycopg.types.json import Jsonb
 from ai_learning_path_service import classify_reader, get_learning_path_generator
 
 
-LESSON_TO_CHAPTER_ID = {
-    "Lesson 1": 1,
-}
-
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 app = FastAPI(title="SGS Chapter Content API")
@@ -124,30 +120,33 @@ def get_chapter_content(
     subject: str = Query(..., min_length=1),
     lesson: str = Query(..., min_length=1),
 ):
-    if subject != "Social Science":
+    normalized_subject = subject.strip().casefold()
+    normalized_lesson = lesson.strip().casefold()
+
+    if normalized_subject != "social science":
         raise HTTPException(
             status_code=404,
             detail="No chapter content found for this subject yet.",
         )
 
-    chapter_id = LESSON_TO_CHAPTER_ID.get(lesson)
-    if chapter_id is None:
+    if normalized_lesson not in {"lesson 1", "lesson 1 +"}:
         raise HTTPException(
             status_code=404,
             detail="No chapter content found for this lesson yet.",
         )
 
     query = """
-        SELECT content_title, full_text_content
+        SELECT full_text_content
         FROM sgs_chapter_content
-        WHERE chapter_id = %s
+        WHERE full_text_content IS NOT NULL
+          AND BTRIM(full_text_content) <> ''
         LIMIT 1;
     """
 
     try:
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (chapter_id,))
+                cursor.execute(query)
                 row = cursor.fetchone()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
@@ -167,8 +166,8 @@ def get_chapter_content(
         )
 
     return {
-        "chapter_id": chapter_id,
-        "content_title": row["content_title"],
+        "chapter_id": 1,
+        "content_title": "Lesson 1",
         "full_text_content": row["full_text_content"],
     }
 
