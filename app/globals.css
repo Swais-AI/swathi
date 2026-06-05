@@ -1233,6 +1233,7 @@ button {
 }
 
 .upload-zone {
+  position: relative;
   min-height: 210px;
   display: grid;
   place-items: center;
@@ -1244,6 +1245,19 @@ button {
   text-align: center;
 }
 
+.upload-zone input {
+  position: absolute;
+  inset: auto;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.upload-browse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .upload-icon {
   color: #0062ff;
   font-size: 28px;
@@ -1252,6 +1266,34 @@ button {
 
 .upload-zone small {
   color: #425079;
+}
+
+.typed-assignment-box {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  color: #07133c;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.typed-assignment-box textarea {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  padding: 14px;
+  border: 1px solid #c8d7ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #07133c;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.typed-assignment-box textarea:focus {
+  outline: 2px solid #b8d0ff;
+  outline-offset: 2px;
 }
 
 .submit-row {

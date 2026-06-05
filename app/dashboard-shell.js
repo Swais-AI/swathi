@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import StudentProfile from "./student-profile";
 
 const navItems = [
   ["home", "Dashboard", "/"],
@@ -110,16 +111,7 @@ export default function DashboardShell({ children }) {
         <header className="topbar">
           <div className="student-card">
             <Avatar />
-            <div className="student-info">
-              <p>Welcome back,</p>
-              <h1>Aarav</h1>
-              <div className="chips">
-                <span>Roll No.: 23</span>
-                <span>Admission No.: 2024/08/0156</span>
-                <span>Class: Class 9</span>
-                <span>Section: A</span>
-              </div>
-            </div>
+            <StudentProfile />
           </div>
 
           <div className="top-actions">
