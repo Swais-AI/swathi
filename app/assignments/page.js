@@ -59,7 +59,7 @@ export default function AssignmentsPage() {
         }
       } catch {
         if (!cancelled) {
-          setError("Current student load nahi ho paya.");
+          setError("Unable to load the current student.");
         }
       }
     }
@@ -81,7 +81,7 @@ export default function AssignmentsPage() {
 
     if (file.size > MAX_FILE_SIZE) {
       setSelectedFile(null);
-      setError("File size 10 MB se kam honi chahiye.");
+      setError("File size must be 10 MB or smaller.");
       return;
     }
 
@@ -90,7 +90,7 @@ export default function AssignmentsPage() {
 
     if (!isSupported) {
       setSelectedFile(null);
-      setError("Sirf PDF, DOC, DOCX, JPG, ya PNG file upload kar sakte hain.");
+      setError("Only PDF, DOC, DOCX, JPG, or PNG files are supported.");
       return;
     }
 
@@ -102,12 +102,12 @@ export default function AssignmentsPage() {
     const trimmedAnswer = typedAnswer.trim();
 
     if (!selectedFile && !trimmedAnswer) {
-      setError("Assignment submit karne ke liye file upload karein ya answer type karein.");
+      setError("Upload a file or type an answer before submitting.");
       return;
     }
 
     if (!studentId) {
-      setError("Current student load hone ke baad assignment submit karein.");
+      setError("Please wait for the current student to load before submitting.");
       return;
     }
 
@@ -138,10 +138,10 @@ export default function AssignmentsPage() {
       }
 
       setSavedSubmission(data.submission);
-      setStatus("Assignment database me save ho gaya.");
+      setStatus("Assignment saved to the database.");
     } catch (submitError) {
       setStatus("");
-      setError(submitError.message || "Assignment submit nahi ho paya.");
+      setError(submitError.message || "Unable to submit assignment.");
     } finally {
       setSubmitting(false);
     }
