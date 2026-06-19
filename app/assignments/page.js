@@ -1,15 +1,27 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { getApiBaseUrl } from "../api-base-url";
 import DashboardShell from "../dashboard-shell";
-import { useLanguage } from "../i18n";
 import StudyTabs from "../study-tabs";
 
 const API_BASE_URL = getApiBaseUrl();
+const ACTIVE_ASSIGNMENT = {
+  id: 2,
+  title: "Data Privacy Analysis",
+  dueDate: "28 May 2024",
+  maxMarks: 25
+};
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const supportedFileTypes = [".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png"];
+
+const assignments = [
+  ["1", "AI Ethics Case Study", "20 May 2024", "Submitted", "View"],
+  ["2", "Data Privacy Analysis", "28 May 2024", "In Progress", "Continue"],
+  ["3", "Logistics Problem Set", "05 Jun 2024", "Not Started", "Start"],
+  ["4", "Algorithm Bias Report", "12 Jun 2024", "Not Started", "Start"],
+  ["5", "Sustainable Supply Chain", "20 Jun 2024", "Not Started", "Start"]
+];
 
 function readFileAsBase64(file) {
   return new Promise((resolve, reject) => {
@@ -23,106 +35,9 @@ function readFileAsBase64(file) {
   });
 }
 
-function formatDate(dateValue, language = "en") {
-  if (!dateValue) {
-    return "-";
-  }
-
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) {
-    return "-";
-  }
-
-  const locale = language === "hi" ? "hi-IN" : language === "te" ? "te-IN" : "en-IN";
-
-  return date.toLocaleDateString(locale, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
-}
-
-function getAssignmentStatus(assignment, selectedAssignmentId) {
-  if (assignment.submission_status) {
-    return "Submitted";
-  }
-
-  if (isAssignmentOverdue(assignment)) {
-    return "Overdue";
-  }
-
-  if (assignment.assignment_id === selectedAssignmentId) {
-    return "In Progress";
-  }
-
-  return "Not Started";
-}
-
-function getAssignmentAction(status, t) {
-  if (status === "Submitted") {
-    return t("view");
-  }
-
-  if (status === "In Progress") {
-    return t("continue");
-  }
-
-  return t("start");
-}
-
-function isAssignmentOverdue(assignment) {
-  if (!assignment?.due_date || assignment.submission_status) {
-    return false;
-  }
-
-  const dueDate = new Date(assignment.due_date);
-  if (Number.isNaN(dueDate.getTime())) {
-    return false;
-  }
-
-  dueDate.setHours(23, 59, 59, 999);
-  return dueDate < new Date();
-}
-
-function getStatusLabel(status, t) {
-  const statusKeys = {
-    Submitted: "submitted",
-    Overdue: "overdue",
-    "In Progress": "inProgress",
-    "Not Started": "notStarted"
-  };
-
-  return t(statusKeys[status] || "notStarted");
-}
-
-function DueDateCell({ assignment, language, t }) {
-  const overdue = isAssignmentOverdue(assignment);
-  const dateLabel = formatDate(assignment.due_date, language);
-
-  if (!overdue) {
-    return dateLabel;
-  }
-
-  return (
-    <span className="overdue-date" title={t("dueDatePast")}>
-      <span aria-hidden="true">!</span>
-      {dateLabel}
-    </span>
-  );
-}
-
-function AssignmentsContent() {
-  const searchParams = useSearchParams();
-  const activeView = searchParams.get("view") || "assignments";
-  const { language, t } = useLanguage();
+export default function AssignmentsPage() {
   const [showAiSummary, setShowAiSummary] = useState(false);
   const [studentId, setStudentId] = useState(null);
-  const [assignments, setAssignments] = useState([]);
-  const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
-  const [loadingAssignments, setLoadingAssignments] = useState(false);
-  const [feedbackRows, setFeedbackRows] = useState([]);
-  const [loadingFeedback, setLoadingFeedback] = useState(false);
-  const [feedbackError, setFeedbackError] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [typedAnswer, setTypedAnswer] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -130,7 +45,6 @@ function AssignmentsContent() {
   const [error, setError] = useState("");
   const [savedSubmission, setSavedSubmission] = useState(null);
   const fileInputRef = useRef(null);
-  const selectedAssignment = assignments.find((assignment) => assignment.assignment_id === selectedAssignmentId) || assignments[0] || null;
 
   useEffect(() => {
     let cancelled = false;
@@ -157,100 +71,6 @@ function AssignmentsContent() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAssignments() {
-      setLoadingAssignments(true);
-      setError("");
-
-      try {
-        const params = new URLSearchParams();
-        if (studentId) {
-          params.set("student_id", String(studentId));
-        }
-
-        const response = await fetch(`${API_BASE_URL}/assignments${params.toString() ? `?${params.toString()}` : ""}`);
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(typeof data.detail === "string" ? data.detail : t("loadingAssignments"));
-        }
-
-        if (!cancelled) {
-          const assignmentRows = Array.isArray(data.assignments) ? data.assignments : [];
-          setAssignments(assignmentRows);
-          setSelectedAssignmentId((current) => current || assignmentRows[0]?.assignment_id || null);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError.message || t("loadingAssignments"));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingAssignments(false);
-        }
-      }
-    }
-
-    loadAssignments();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [studentId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadFeedback() {
-      setLoadingFeedback(true);
-      setFeedbackError("");
-
-      try {
-        const params = new URLSearchParams();
-        if (studentId) {
-          params.set("student_id", String(studentId));
-        }
-
-        const response = await fetch(`${API_BASE_URL}/assignment-feedback${params.toString() ? `?${params.toString()}` : ""}`);
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(typeof data.detail === "string" ? data.detail : t("loadingFeedback"));
-        }
-
-        if (!cancelled) {
-          setFeedbackRows(Array.isArray(data.feedback) ? data.feedback : []);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setFeedbackError(loadError.message || t("loadingFeedback"));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingFeedback(false);
-        }
-      }
-    }
-
-    loadFeedback();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [studentId]);
-
-  function handleSelectAssignment(assignment) {
-    setSelectedAssignmentId(assignment.assignment_id);
-    setShowAiSummary(false);
-    setSelectedFile(null);
-    setTypedAnswer("");
-    setSavedSubmission(null);
-    setStatus("");
-    setError("");
-  }
-
   function handleFileSelect(file) {
     setError("");
 
@@ -261,7 +81,7 @@ function AssignmentsContent() {
 
     if (file.size > MAX_FILE_SIZE) {
       setSelectedFile(null);
-      setError(t("fileSizeError"));
+      setError("File size must be 10 MB or smaller.");
       return;
     }
 
@@ -270,34 +90,29 @@ function AssignmentsContent() {
 
     if (!isSupported) {
       setSelectedFile(null);
-      setError(t("supportedFileError"));
+      setError("Only PDF, DOC, DOCX, JPG, or PNG files are supported.");
       return;
     }
 
     setSelectedFile(file);
-    setStatus(`${t("fileSelected")}: ${file.name}`);
+    setStatus(`File selected: ${file.name}`);
   }
 
   async function handleSubmitAssignment() {
     const trimmedAnswer = typedAnswer.trim();
 
     if (!selectedFile && !trimmedAnswer) {
-      setError(t("uploadOrTypeError"));
+      setError("Upload a file or type an answer before submitting.");
       return;
     }
 
     if (!studentId) {
-      setError(t("waitStudentError"));
-      return;
-    }
-
-    if (!selectedAssignment) {
-      setError(t("selectAssignment"));
+      setError("Please wait for the current student to load before submitting.");
       return;
     }
 
     setSubmitting(true);
-    setStatus(t("submitting"));
+    setStatus("Submitting assignment...");
     setError("");
 
     try {
@@ -307,8 +122,8 @@ function AssignmentsContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           student_id: studentId,
-          assignment_id: selectedAssignment.assignment_id,
-          assignment_title: selectedAssignment.assignment_title || t("assignment"),
+          assignment_id: ACTIVE_ASSIGNMENT.id,
+          assignment_title: ACTIVE_ASSIGNMENT.title,
           typed_answer: trimmedAnswer || null,
           file_name: selectedFile?.name || null,
           file_type: selectedFile?.type || null,
@@ -323,12 +138,7 @@ function AssignmentsContent() {
       }
 
       setSavedSubmission(data.submission);
-      setAssignments((current) => current.map((assignment) => (
-        assignment.assignment_id === selectedAssignment.assignment_id
-          ? { ...assignment, submission_status: data.submission?.status || "Submitted", submitted_at: data.submission?.submitted_at }
-          : assignment
-      )));
-      setStatus(t("assignmentSaved"));
+      setStatus("Assignment saved to the database.");
     } catch (submitError) {
       setStatus("");
       setError(submitError.message || "Unable to submit assignment.");
@@ -345,67 +155,51 @@ function AssignmentsContent() {
           <div className="assignment-layout">
             <article className="module-card assignment-list-card">
               <div className="card-title-row">
-                <h2>{t("yourAssignments")}</h2>
-                <button className="soft-button" type="button">{t("viewAll")}</button>
+                <h2>Your Assignments</h2>
+                <button className="soft-button" type="button">View All</button>
               </div>
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>{t("assignmentTitle")}</th>
-                    <th>{t("dueDate")}</th>
-                    <th>{t("status")}</th>
-                    <th>{t("action")}</th>
+                    <th>Assignment Title</th>
+                    <th>Due Date</th>
+                    <th>Status</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {loadingAssignments && (
-                    <tr>
-                      <td colSpan="5" className="table-message-cell">{t("loadingAssignments")}</td>
+                  {assignments.map(([number, title, dueDate, status, action]) => (
+                    <tr className={status === "In Progress" ? "highlight-row" : ""} key={number}>
+                      <td>{number}</td>
+                      <td>{title}</td>
+                      <td>{dueDate}</td>
+                      <td><span className={`status-pill ${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span></td>
+                      <td><button className="table-action" type="button">{action}</button></td>
                     </tr>
-                  )}
-
-                  {!loadingAssignments && assignments.length === 0 && (
-                    <tr>
-                      <td colSpan="5" className="table-message-cell">{t("noAssignments")}</td>
-                    </tr>
-                  )}
-
-                  {!loadingAssignments && assignments.map((assignment, index) => {
-                    const assignmentStatus = getAssignmentStatus(assignment, selectedAssignmentId);
-                    const action = getAssignmentAction(assignmentStatus, t);
-
-                    return (
-                    <tr className={assignmentStatus === "In Progress" ? "highlight-row" : ""} key={assignment.assignment_id}>
-                      <td>{index + 1}</td>
-                      <td>{assignment.assignment_title || "-"}</td>
-                      <td><DueDateCell assignment={assignment} language={language} t={t} /></td>
-                      <td><span className={`status-pill ${assignmentStatus.toLowerCase().replaceAll(" ", "-")}`}>{getStatusLabel(assignmentStatus, t)}</span></td>
-                      <td><button className="table-action" type="button" onClick={() => handleSelectAssignment(assignment)}>{action}</button></td>
-                    </tr>
-                    );
-                  })}
+                  ))}
                 </tbody>
               </table>
-              <div className="tip-box">{t("submitTip")}</div>
+              <div className="tip-box">Tip: Submit your assignments on time to get early feedback and improve your score!</div>
             </article>
 
             <article className="module-card assignment-upload-card">
               <div className="card-title-row">
-                <h2>{selectedAssignment ? `${t("assignment")} ${selectedAssignment.assignment_id}: ${selectedAssignment.assignment_title || t("untitled")}` : t("assignment")}</h2>
-                <span className={`status-pill ${savedSubmission || selectedAssignment?.submission_status ? "submitted" : "in-progress"}`}>{savedSubmission || selectedAssignment?.submission_status ? t("submitted") : t("inProgress")}</span>
+                <h2>Assignment {ACTIVE_ASSIGNMENT.id}: {ACTIVE_ASSIGNMENT.title}</h2>
+                <span className={`status-pill ${savedSubmission ? "submitted" : "in-progress"}`}>{savedSubmission ? "Submitted" : "In Progress"}</span>
               </div>
               <div className="meta-row">
-                <span>{t("dueDate")}: {formatDate(selectedAssignment?.due_date, language)}</span>
+                <span>Due Date: {ACTIVE_ASSIGNMENT.dueDate}</span>
+                <span>Max Marks: {ACTIVE_ASSIGNMENT.maxMarks}</span>
               </div>
-              <p>{selectedAssignment?.assignment_text || t("selectAssignment")}</p>
+              <p>Analyze a real-world data privacy scenario and identify potential risks. Suggest proper mitigation strategies.</p>
               <div className="quiz-submit-row assignment-ai-row">
-                <button className="primary-button" type="button" onClick={() => setShowAiSummary(true)}>{t("askAi")}</button>
+                <button className="primary-button" type="button" onClick={() => setShowAiSummary(true)}>Ask AI</button>
               </div>
               {showAiSummary && (
                 <div className="assignment-ai-summary">
-                  <strong>{t("aiSummary")}</strong>
-                  <p>{selectedAssignment?.assignment_text || t("assignmentDetailsUnavailable")}</p>
+                  <strong>AI Summary</strong>
+                  <p>Data Privacy Analysis asks you to study how personal data can be exposed or misused, identify privacy risks, and recommend practical safeguards such as consent, access control, encryption, and responsible data handling.</p>
                 </div>
               )}
               <div
@@ -416,34 +210,34 @@ function AssignmentsContent() {
                   handleFileSelect(event.dataTransfer.files?.[0]);
                 }}
               >
-                <div className="upload-icon">{t("upload")}</div>
-                <strong>{t("dragDropFile")}</strong>
-                <span>{t("or")}</span>
-                <button className="soft-button upload-browse" type="button" onClick={() => fileInputRef.current?.click()}>{t("browseFiles")}</button>
+                <div className="upload-icon">Upload</div>
+                <strong>Drag & drop your file here</strong>
+                <span>or</span>
+                <button className="soft-button upload-browse" type="button" onClick={() => fileInputRef.current?.click()}>Browse Files</button>
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                   onChange={(event) => handleFileSelect(event.target.files?.[0])}
                 />
-                <small>{t("supportedFormats")}</small>
+                <small>Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 10 MB)</small>
               </div>
               <label className="typed-assignment-box">
-                <span>{t("typeAssignment")}</span>
+                <span>Type assignment in portal</span>
                 <textarea
                   value={typedAnswer}
                   onChange={(event) => setTypedAnswer(event.target.value)}
-                  placeholder={t("answerPlaceholder")}
+                  placeholder="Write your assignment answer here..."
                   rows={8}
                 />
               </label>
               <div className="submit-row">
                 <div>
-                  <p>{selectedFile ? `${t("selectedFile")}: ${selectedFile.name}` : t("noFileUploaded")}</p>
-                  <p>{savedSubmission ? `${t("lastSaved")}: ${new Date(savedSubmission.submitted_at).toLocaleString()}` : t("notSubmittedYet")}</p>
+                  <p>{selectedFile ? `Selected file: ${selectedFile.name}` : "No file uploaded yet"}</p>
+                  <p>{savedSubmission ? `Last saved: ${new Date(savedSubmission.submitted_at).toLocaleString()}` : "Not submitted yet"}</p>
                 </div>
                 <button className="primary-button" type="button" onClick={handleSubmitAssignment} disabled={submitting}>
-                  {submitting ? t("submitting") : t("submitAssignment")}
+                  {submitting ? "Submitting..." : "Submit Assignment"}
                 </button>
               </div>
               {status && <div className="learning-status success" role="status">{status}</div>}
@@ -452,69 +246,16 @@ function AssignmentsContent() {
           </div>
 
           <article className="module-card workflow-card">
-            <h2>{t("assignmentFeedback")}</h2>
-            {activeView === "feedback" ? (
-              <div className="feedback-panel">
-                {feedbackError && <div className="learning-status error" role="alert">{feedbackError}</div>}
-                <table className="data-table feedback-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>{t("assignmentTitle")}</th>
-                      <th>{t("submittedDetails")}</th>
-                      <th>{t("teacherScore")}</th>
-                      <th>{t("feedbackComments")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loadingFeedback && (
-                      <tr>
-                        <td colSpan="5" className="table-message-cell">{t("loadingFeedback")}</td>
-                      </tr>
-                    )}
-
-                    {!loadingFeedback && !feedbackError && feedbackRows.length === 0 && (
-                      <tr>
-                        <td colSpan="5" className="table-message-cell">{t("noFeedback")}</td>
-                      </tr>
-                    )}
-
-                    {!loadingFeedback && feedbackRows.map((feedback, index) => (
-                      <tr key={feedback.submission_id}>
-                        <td>{index + 1}</td>
-                        <td>{feedback.assignment_title || "-"}</td>
-                        <td>
-                          <div className="submitted-detail">
-                            <span>{feedback.submission_text || t("submittedAssignment")}</span>
-                            <small>{feedback.file_path || "-"}</small>
-                          </div>
-                        </td>
-                        <td><span className="status-pill completed">{feedback.marks_obtained ?? "-"}</span></td>
-                        <td>{feedback.teacher_remarks || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="workflow-steps">
-                <div><span>1</span><p>{t("workflowUpload")}</p></div>
-                <div><span>2</span><p>{t("workflowReview")}</p></div>
-                <div><span>3</span><p>{t("workflowRevise")}</p></div>
-                <div><span>4</span><p>{t("workflowFinal")}</p></div>
-              </div>
-            )}
+            <h2>Assignment Submission & Feedback</h2>
+            <div className="workflow-steps">
+              <div><span>1</span><p>Upload / Type Assignment</p></div>
+              <div><span>2</span><p>Teacher Review & Feedback</p></div>
+              <div><span>3</span><p>Revise (If Needed)</p></div>
+              <div><span>4</span><p>Final Submission Done</p></div>
+            </div>
           </article>
         </div>
       </section>
     </DashboardShell>
-  );
-}
-
-export default function AssignmentsPage() {
-  return (
-    <Suspense fallback={null}>
-      <AssignmentsContent />
-    </Suspense>
   );
 }

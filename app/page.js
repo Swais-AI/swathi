@@ -1,56 +1,53 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useLanguage } from "./i18n";
-import NotificationBell from "./notification-bell";
 import StudentProfile from "./student-profile";
 
 const navItems = [
-  ["home", "dashboard", "/", true],
-  ["book-open", "coreStudy", "/chapters"],
-  ["clipboard", "assignments", "/assignments"],
-  ["target", "assessments", "/assessments"],
-  ["chart", "myProgress", "/progress"]
+  ["home", "Dashboard", "/", true],
+  ["book-open", "Core Study", "/chapters"],
+  ["clipboard", "Assignments", "/assignments"],
+  ["target", "Assessments", "/assessments"],
+  ["chart", "My Progress", "/progress"]
 ];
 
 const settingsItems = [
-  ["settings", "settings", "/settings"],
-  ["help", "helpSupport", "/help"]
+  ["settings", "Settings", "/settings"],
+  ["help", "Help & Support", "/help"]
 ];
 
 const panels = [
   {
     tone: "green",
     icon: "book-open",
-    titleKey: "studyA",
+    title: "Study A: Core Material",
     rows: [
-      ["chapters", "/chapters"],
-      ["studyMaterial", "/study-material"],
-      ["quizzes", "/quizzes"],
-      ["aiLearningPath", "/ai-learning-path"]
+      ["book-open", "1) Chapters"],
+      ["document", "2) Study Material"],
+      ["question", "3) Quizzes"],
+      ["chart", "4) AI Learning Path"]
     ]
   },
   {
     tone: "orange",
     icon: "clipboard",
-    titleKey: "studyB",
+    title: "Study B: Assignment",
     rows: [
-      ["myAssignmentsMenu", "/assignments"],
-      ["submitAssignmentMenu", "/assignments?view=submit"],
-      ["feedbackMarksMenu", "/assignments?view=feedback"]
+      ["clipboard", "1) My Assignments"],
+      ["upload", "2) Submit Assignment"],
+      ["star", "3) Feedback & Marks"]
     ]
   },
   {
     tone: "purple",
     icon: "target",
-    titleKey: "studyC",
+    title: "Study C: Assessment",
     rows: [
-      ["unitTest", "/assessments"],
-      ["mockTest", "/assessments"],
-      ["feedbackMarksMenu", "/assessments"],
-      ["studentAnalysis", "/assessments"],
-      ["teacherRemark", "/assessments"]
+      ["checklist", "1) Unit Test"],
+      ["monitor", "2) Mock Test"],
+      ["star", "3) Feedback & Marks"],
+      ["chart", "4) Student Analysis"],
+      ["note", "5) Teacher Remark"]
     ]
   }
 ];
@@ -127,21 +124,33 @@ function Avatar() {
   );
 }
 
-function StudyPanel({ panel, open, onToggle, t }) {
+function StudyPanel({ panel, open, onToggle }) {
+  const isCoreMaterial = panel.title === "Study A: Core Material";
+
   return (
     <article className={`study-panel ${panel.tone} ${open ? "" : "collapsed"}`}>
       <button className="panel-head" type="button" aria-expanded={open} onClick={onToggle}>
         <PanelIcon name={panel.icon} />
-        <span className="panel-title">{t(panel.titleKey)}</span>
+        <span className="panel-title">{panel.title}</span>
         <span className="chevron" aria-hidden="true" />
       </button>
       <div className="accent-line" />
       <div className="panel-body">
-        {panel.rows.map(([labelKey, href]) => (
-          <a className="study-row" href={href} key={labelKey}>
-            <span>{t(labelKey)}</span>
-          </a>
-        ))}
+        {panel.rows.map(([icon, label]) => {
+          const coreLinks = {
+            "1) Chapters": "/chapters",
+            "2) Study Material": "/study-material",
+            "3) Quizzes": "/quizzes",
+            "4) AI Learning Path": "/ai-learning-path"
+          };
+          const rowHref = isCoreMaterial ? coreLinks[label] : panel.tone === "orange" ? "/assignments" : panel.tone === "purple" ? "/assessments" : "#";
+
+          return (
+            <a className="study-row" href={rowHref} key={label}>
+              <span>{label}</span>
+            </a>
+          );
+        })}
       </div>
     </article>
   );
@@ -149,15 +158,6 @@ function StudyPanel({ panel, open, onToggle, t }) {
 
 export default function DashboardPage() {
   const [openPanel, setOpenPanel] = useState(null);
-  const router = useRouter();
-  const { language, languageOptions, setLanguage, t } = useLanguage();
-
-  function handleLogout(event) {
-    event.preventDefault();
-    window.localStorage.removeItem("swais-auth-token");
-    window.sessionStorage.clear();
-    router.push("/login");
-  }
 
   return (
     <main className="app-shell">
@@ -171,10 +171,10 @@ export default function DashboardPage() {
         </div>
 
         <nav className="nav-list" aria-label="Student navigation">
-          {navItems.map(([icon, labelKey, href, active]) => (
-            <a className={`nav-item ${active ? "active" : ""}`} href={href} key={labelKey}>
+          {navItems.map(([icon, label, href, active]) => (
+            <a className={`nav-item ${active ? "active" : ""}`} href={href} key={label}>
               <Icon name={icon} />
-              <span>{t(labelKey)}</span>
+              <span>{label}</span>
             </a>
           ))}
         </nav>
@@ -182,19 +182,19 @@ export default function DashboardPage() {
         <div className="nav-divider" />
 
         <nav className="nav-list compact" aria-label="Settings navigation">
-          {settingsItems.map(([icon, labelKey, href]) => (
-            <a className="nav-item" href={href} key={labelKey}>
+          {settingsItems.map(([icon, label, href]) => (
+            <a className="nav-item" href={href} key={label}>
               <Icon name={icon} />
-              <span>{t(labelKey)}</span>
+              <span>{label}</span>
             </a>
           ))}
         </nav>
 
         <div className="nav-divider" />
 
-        <a className="nav-item logout-link" href="/login" onClick={handleLogout}>
+        <a className="nav-item logout-link" href="#">
           <Icon name="power" />
-          <span>{t("logout")}</span>
+          <span>Logout</span>
         </a>
       </aside>
 
@@ -207,17 +207,20 @@ export default function DashboardPage() {
 
           <div className="top-actions">
             <label className="language-select">
-              <span>{t("language")}</span>
-              <select value={language} aria-label="Select language" onChange={(event) => setLanguage(event.target.value)}>
-                {languageOptions.map((option) => (
-                  <option value={option.code} key={option.code}>{option.label}</option>
-                ))}
+              <span>Language</span>
+              <select defaultValue="English" aria-label="Select language">
+                <option>English</option>
+                <option>Hindi</option>
+                <option>Telugu</option>
               </select>
             </label>
-            <NotificationBell />
-            <button className="top-logout" type="button" onClick={handleLogout}>
+            <button className="bell-button" aria-label="Notifications">
+              <span className="bell-icon" aria-hidden="true" />
+              <span className="badge">3</span>
+            </button>
+            <button className="top-logout" type="button">
               <span className="exit-icon" aria-hidden="true" />
-              <span>{t("logout")}</span>
+              <span>Logout</span>
             </button>
           </div>
         </header>
@@ -228,8 +231,7 @@ export default function DashboardPage() {
               panel={panel}
               open={openPanel === index}
               onToggle={() => setOpenPanel((current) => (current === index ? null : index))}
-              t={t}
-              key={panel.titleKey}
+              key={panel.title}
             />
           ))}
         </section>
