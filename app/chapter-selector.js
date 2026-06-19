@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getApiBaseUrl } from "./api-base-url";
 
 const chapterSubjects = ["Social Science", "Maths", "Hindi", "Telugu"];
@@ -16,6 +16,8 @@ export default function ChapterSelector({ showReader = false }) {
   const [isReading, setIsReading] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
+  const activeSpeechIdRef = useRef(0);
+  const speechStartTimeoutRef = useRef(null);
 
   const paragraphs = useMemo(() => {
     if (!chapterContent?.full_text_content) {
@@ -33,6 +35,8 @@ export default function ChapterSelector({ showReader = false }) {
 
     return () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        activeSpeechIdRef.current += 1;
+        window.clearTimeout(speechStartTimeoutRef.current);
         window.speechSynthesis.cancel();
       }
     };
@@ -40,6 +44,8 @@ export default function ChapterSelector({ showReader = false }) {
 
   useEffect(() => {
     if (speechSupported) {
+      activeSpeechIdRef.current += 1;
+      window.clearTimeout(speechStartTimeoutRef.current);
       window.speechSynthesis.cancel();
       setIsReading(false);
       setIsPaused(false);
@@ -51,6 +57,9 @@ export default function ChapterSelector({ showReader = false }) {
       return;
     }
 
+    const speechId = activeSpeechIdRef.current + 1;
+    activeSpeechIdRef.current = speechId;
+    window.clearTimeout(speechStartTimeoutRef.current);
     window.speechSynthesis.cancel();
 
     const textToRead = `${chapterContent.content_title}. ${chapterContent.full_text_content}`;
@@ -59,18 +68,32 @@ export default function ChapterSelector({ showReader = false }) {
     utterance.rate = 0.92;
     utterance.pitch = 1;
 
+    utterance.onstart = () => {
+      if (activeSpeechIdRef.current === speechId) {
+        setIsReading(true);
+        setIsPaused(false);
+      }
+    };
     utterance.onend = () => {
-      setIsReading(false);
-      setIsPaused(false);
+      if (activeSpeechIdRef.current === speechId) {
+        setIsReading(false);
+        setIsPaused(false);
+      }
     };
     utterance.onerror = () => {
-      setIsReading(false);
-      setIsPaused(false);
+      if (activeSpeechIdRef.current === speechId) {
+        setIsReading(false);
+        setIsPaused(false);
+      }
     };
 
     setIsReading(true);
     setIsPaused(false);
-    window.speechSynthesis.speak(utterance);
+    speechStartTimeoutRef.current = window.setTimeout(() => {
+      if (activeSpeechIdRef.current === speechId) {
+        window.speechSynthesis.speak(utterance);
+      }
+    }, 80);
   }
 
   function handlePauseResume() {
@@ -92,6 +115,8 @@ export default function ChapterSelector({ showReader = false }) {
       return;
     }
 
+    activeSpeechIdRef.current += 1;
+    window.clearTimeout(speechStartTimeoutRef.current);
     window.speechSynthesis.cancel();
     setIsReading(false);
     setIsPaused(false);

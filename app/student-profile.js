@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getApiBaseUrl } from "./api-base-url";
+import { useLanguage } from "./i18n";
 
 const API_BASE_URL = getApiBaseUrl();
 const fallbackStudent = {
@@ -14,6 +15,7 @@ const fallbackStudent = {
 
 export default function StudentProfile() {
   const [student, setStudent] = useState(fallbackStudent);
+  const { t } = useLanguage();
 
   useEffect(() => {
     let cancelled = false;
@@ -46,13 +48,13 @@ export default function StudentProfile() {
 
   return (
     <div className="student-info">
-      <p>Welcome back,</p>
+      <p>{t("welcomeBack")}</p>
       <h1>{student.full_name}</h1>
       <div className="chips">
-        <span>Roll No.: {student.roll_no}</span>
-        <span>Admission No.: {student.admission_no}</span>
-        <span>Class: {student.class_name}</span>
-        <span>Section: {student.section}</span>
+        <span>{t("rollNo")}: {student.roll_no}</span>
+        <span>{t("admissionNo")}: {student.admission_no}</span>
+        <span>{t("classLabel")}: {student.class_name}</span>
+        <span>{t("section")}: {student.section}</span>
       </div>
     </div>
   );

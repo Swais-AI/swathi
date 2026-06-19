@@ -1,19 +1,21 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useLanguage } from "./i18n";
+import NotificationBell from "./notification-bell";
 import StudentProfile from "./student-profile";
 
 const navItems = [
-  ["home", "Dashboard", "/"],
-  ["book-open", "Core Study", "/chapters"],
-  ["clipboard", "Assignments", "/assignments"],
-  ["target", "Assessments", "/assessments"],
-  ["chart", "My Progress", "/progress"]
+  ["home", "dashboard", "/"],
+  ["book-open", "coreStudy", "/chapters"],
+  ["clipboard", "assignments", "/assignments"],
+  ["target", "assessments", "/assessments"],
+  ["chart", "myProgress", "/progress"]
 ];
 
 const settingsItems = [
-  ["settings", "Settings", "/settings"],
-  ["help", "Help & Support", "/help"]
+  ["settings", "settings", "/settings"],
+  ["help", "helpSupport", "/help"]
 ];
 
 function Icon({ name, className = "" }) {
@@ -59,6 +61,8 @@ function Avatar() {
 
 export default function DashboardShell({ children }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { language, languageOptions, setLanguage, t } = useLanguage();
 
   function isActive(href) {
     if (href === "/") {
@@ -66,6 +70,13 @@ export default function DashboardShell({ children }) {
     }
 
     return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
+  function handleLogout(event) {
+    event.preventDefault();
+    window.localStorage.removeItem("swais-auth-token");
+    window.sessionStorage.clear();
+    router.push("/login");
   }
 
   return (
@@ -80,10 +91,10 @@ export default function DashboardShell({ children }) {
         </div>
 
         <nav className="nav-list" aria-label="Student navigation">
-          {navItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+          {navItems.map(([icon, labelKey, href]) => (
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={labelKey}>
               <Icon name={icon} />
-              <span>{label}</span>
+              <span>{t(labelKey)}</span>
             </a>
           ))}
         </nav>
@@ -91,19 +102,19 @@ export default function DashboardShell({ children }) {
         <div className="nav-divider" />
 
         <nav className="nav-list compact" aria-label="Settings navigation">
-          {settingsItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+          {settingsItems.map(([icon, labelKey, href]) => (
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={labelKey}>
               <Icon name={icon} />
-              <span>{label}</span>
+              <span>{t(labelKey)}</span>
             </a>
           ))}
         </nav>
 
         <div className="nav-divider" />
 
-        <a className="nav-item logout-link" href="#">
+        <a className="nav-item logout-link" href="/login" onClick={handleLogout}>
           <Icon name="power" />
-          <span>Logout</span>
+          <span>{t("logout")}</span>
         </a>
       </aside>
 
@@ -116,20 +127,17 @@ export default function DashboardShell({ children }) {
 
           <div className="top-actions">
             <label className="language-select">
-              <span>Language</span>
-              <select defaultValue="English" aria-label="Select language">
-                <option>English</option>
-                <option>Hindi</option>
-                <option>Telugu</option>
+              <span>{t("language")}</span>
+              <select value={language} aria-label="Select language" onChange={(event) => setLanguage(event.target.value)}>
+                {languageOptions.map((option) => (
+                  <option value={option.code} key={option.code}>{option.label}</option>
+                ))}
               </select>
             </label>
-            <button className="bell-button" aria-label="Notifications">
-              <span className="bell-icon" aria-hidden="true" />
-              <span className="badge">3</span>
-            </button>
-            <button className="top-logout" type="button">
+            <NotificationBell />
+            <button className="top-logout" type="button" onClick={handleLogout}>
               <span className="exit-icon" aria-hidden="true" />
-              <span>Logout</span>
+              <span>{t("logout")}</span>
             </button>
           </div>
         </header>
