@@ -131,14 +131,7 @@ export default function DashboardShell({ children }) {
                 <option>Telugu</option>
               </select>
             </label>
-            <button className="bell-button" aria-label="Notifications">
-              <span className="bell-icon" aria-hidden="true" />
-              <span className="badge">3</span>
-            </button>
-            <button className="top-logout" type="button">
-              <span className="exit-icon" aria-hidden="true" />
-              <span>Logout</span>
-            </button>
+            <NotificationBell />
           </div>
         </header>
 
