@@ -1,139 +1,38 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { getApiBaseUrl } from "../api-base-url";
+import { useState } from "react";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
-const API_BASE_URL = getApiBaseUrl();
-const fallbackClass = "9th Grade";
-const subjects = ["Social Science", "Maths", "Hindi", "Telugu"];
-const chapters = [
-  { id: 1, title: "Democratic India", subject: "Social Science", lesson: "Lesson 1" },
-  { id: 2, title: "Constitutional Values", subject: "Social Science", lesson: "Lesson 2" },
-  { id: 3, title: "Local Government", subject: "Social Science", lesson: "Lesson 3" }
+const materials = [
+  {
+    type: "PDF",
+    title: "ML Basics - Study Notes",
+    description: "Detailed notes on ML concepts, types of learning and algorithms.",
+    file: "ml_basics_notes.pdf"
+  },
+  {
+    type: "Video",
+    title: "Introduction to ML",
+    description: "Video lecture explaining the basics of Machine Learning.",
+    file: "ml_intro_video.mp4"
+  },
+  {
+    type: "Text",
+    title: "Key Points Summary",
+    description: "Important points and quick revision notes.",
+    file: "-"
+  }
 ];
 
-function normalizeContentType(type) {
-  const value = String(type || "Text").trim();
-  const lowerValue = value.toLowerCase();
-
-  if (lowerValue.includes("video")) return "Video";
-  if (lowerValue.includes("pdf")) return "PDF";
-  if (lowerValue.includes("worksheet")) return "Worksheet";
-  return "Text";
-}
-
-function getFileDisplay(material) {
-  return material.file_name || material.file_link || "-";
-}
-
-function getActionLabel(contentType) {
-  return contentType === "Video" ? "Watch" : "View";
-}
-
-function openMaterial(material, onMissingFile) {
-  const target = material.file_link || material.file_name;
-
-  if (target && target !== "-") {
-    window.open(target, "_blank", "noopener,noreferrer");
-    return;
-  }
-
-  onMissingFile("No file or link is available for this study material.");
-}
-
 export default function StudyMaterialPage() {
-  const [studentClass, setStudentClass] = useState(fallbackClass);
-  const [selectedSubject, setSelectedSubject] = useState("Social Science");
-  const [selectedChapter, setSelectedChapter] = useState("1");
-  const [materials, setMaterials] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [showPdfContent, setShowPdfContent] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState("");
 
-  const filteredChapters = useMemo(() => {
-    const matchingChapters = chapters.filter((chapter) => chapter.subject === selectedSubject);
-    return matchingChapters.length > 0 ? matchingChapters : chapters;
-  }, [selectedSubject]);
-
-  useEffect(() => {
-    if (!filteredChapters.some((chapter) => String(chapter.id) === selectedChapter)) {
-      setSelectedChapter(String(filteredChapters[0].id));
-    }
-  }, [filteredChapters, selectedChapter]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadStudentClass() {
-      try {
-        const response = await fetch(`${API_BASE_URL}/students/current`);
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok || !data.student?.class_name || cancelled) {
-          return;
-        }
-
-        setStudentClass(data.student.class_name);
-      } catch {
-        if (!cancelled) {
-          setStudentClass(fallbackClass);
-        }
-      }
-    }
-
-    loadStudentClass();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadStudyMaterials() {
-      setLoading(true);
-      setError("");
-      setNotice("");
-      setMaterials([]);
-
-      try {
-        const params = new URLSearchParams({
-          student_class: studentClass,
-          subject: selectedSubject,
-          chapter: selectedChapter
-        });
-        const response = await fetch(`${API_BASE_URL}/study-materials?${params.toString()}`);
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load study material.");
-        }
-
-        if (!cancelled) {
-          setMaterials(Array.isArray(data.materials) ? data.materials : []);
-        }
-      } catch (fetchError) {
-        if (!cancelled) {
-          setError(fetchError.message || "Unable to load study material.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    if (studentClass && selectedSubject && selectedChapter) {
-      loadStudyMaterials();
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [studentClass, selectedSubject, selectedChapter]);
+  function handleDownload() {
+    setDownloadMessage("Downloaded");
+    window.setTimeout(() => setDownloadMessage(""), 2200);
+  }
 
   return (
     <DashboardShell>
@@ -141,29 +40,7 @@ export default function StudyMaterialPage() {
         <StudyTabs />
         <div className="module-content-area">
           <article className="module-card material-card">
-            <div className="card-title-row material-title-row">
-              <h2>Chapter Content & Study Material</h2>
-              <form className="material-filter-row" aria-label="Study material filters">
-                <select value={selectedSubject} aria-label="Select subject" onChange={(event) => setSelectedSubject(event.target.value)}>
-                  {subjects.map((subject) => (
-                    <option value={subject} key={subject}>
-                      {subject}
-                    </option>
-                  ))}
-                </select>
-                <select value={selectedChapter} aria-label="Select chapter" onChange={(event) => setSelectedChapter(event.target.value)}>
-                  {filteredChapters.map((chapter) => (
-                    <option value={chapter.id} key={chapter.id}>
-                      {chapter.lesson} - {chapter.title}
-                    </option>
-                  ))}
-                </select>
-              </form>
-            </div>
-
-            {error && <div className="learning-status error" role="alert">{error}</div>}
-            {notice && <div className="learning-status notice" role="status">{notice}</div>}
-
+            <h2>Chapter Content & Study Material</h2>
             <table className="data-table">
               <thead>
                 <tr>
@@ -175,39 +52,49 @@ export default function StudyMaterialPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading && (
-                  <tr>
-                    <td colSpan="5" className="table-message-cell">Loading study material...</td>
+                {materials.map(({ type, title, description, file }) => (
+                  <tr key={title}>
+                    <td><span className={`file-badge ${type.toLowerCase()}`}>{type}</span></td>
+                    <td>{title}</td>
+                    <td>{description}</td>
+                    <td>{file}</td>
+                    <td>
+                      {type === "PDF" ? (
+                        <button className="table-action" type="button" onClick={() => setShowPdfContent(true)}>View</button>
+                      ) : (
+                        <button className="table-action" type="button">{type === "Video" ? "Watch" : "View"}</button>
+                      )}
+                    </td>
                   </tr>
-                )}
-
-                {!loading && !error && materials.length === 0 && (
-                  <tr>
-                    <td colSpan="5" className="table-message-cell">No study material found for this selection.</td>
-                  </tr>
-                )}
-
-                {!loading && materials.map((material) => {
-                  const contentType = normalizeContentType(material.content_type);
-                  const fileDisplay = getFileDisplay(material);
-
-                  return (
-                    <tr key={material.chapter_content_id}>
-                      <td><span className={`file-badge ${contentType.toLowerCase()}`}>{contentType}</span></td>
-                      <td>{material.title || "-"}</td>
-                      <td>{material.description || "-"}</td>
-                      <td>{fileDisplay}</td>
-                      <td>
-                        <button className="table-action" type="button" onClick={() => openMaterial(material, setNotice)}>
-                          {getActionLabel(contentType)}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                ))}
               </tbody>
             </table>
           </article>
+
+          {showPdfContent && (
+            <article className="module-card pdf-view-card">
+              <div className="card-title-row">
+                <h2>ML Basics - Study Notes</h2>
+                <div className="pdf-view-actions">
+                  <button className="download-icon-button" type="button" aria-label="Download PDF" onClick={handleDownload}>
+                    <span aria-hidden="true">↓</span>
+                  </button>
+                  <button className="soft-button" type="button" onClick={() => setShowPdfContent(false)}>Close</button>
+                </div>
+              </div>
+              {downloadMessage && <div className="download-message pdf-download-message" role="status">{downloadMessage}</div>}
+              <div className="pdf-page">
+                <h3>Machine Learning Basics</h3>
+                <p>Machine Learning is a branch of Artificial Intelligence that helps computers learn from data and improve their performance without being explicitly programmed for every task.</p>
+                <h4>Types of Learning</h4>
+                <p><strong>Supervised Learning:</strong> The model learns from labelled examples, such as predicting marks from study hours.</p>
+                <p><strong>Unsupervised Learning:</strong> The model finds patterns in data without labelled answers, such as grouping similar students by learning behavior.</p>
+                <p><strong>Reinforcement Learning:</strong> The model learns by taking actions and receiving rewards or penalties.</p>
+                <h4>Key Algorithms</h4>
+                <p>Common algorithms include Linear Regression, Decision Trees, K-Means Clustering, and Neural Networks. Each algorithm is useful for different kinds of prediction, classification, or pattern discovery tasks.</p>
+              </div>
+            </article>
+          )}
         </div>
       </section>
     </DashboardShell>

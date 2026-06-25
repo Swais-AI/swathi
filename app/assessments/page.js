@@ -1,24 +1,53 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { getApiBaseUrl } from "../api-base-url";
+import { useState } from "react";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
-const API_BASE_URL = getApiBaseUrl();
+const unitTest = {
+  title: "Unit Test",
+  subject: "Social Science",
+  chapter: "Democratic India",
+  question: "Explain why elections are important in a democratic country like India.",
+  studentAnswer: "Elections are important because people can choose their leaders. If leaders do not work properly, citizens can vote for another leader in the next election.",
+  aiAnswer: "Elections are important in democratic India because they give citizens the power to choose their representatives. Regular elections make leaders accountable to the people, protect public participation, and allow citizens to peacefully change the government when they are not satisfied."
+};
 
-function toPercent(score, totalMarks) {
-  const scoreValue = Number(score || 0);
-  const totalValue = Number(totalMarks || 100);
-  if (!totalValue) return 0;
-  return Math.round((scoreValue / totalValue) * 100);
-}
+const subjectScores = [
+  ["Mathematics", "97%", "blue"],
+  ["Science", "80%", "orange"],
+  ["English", "78%", "teal"],
+  ["Social Studies", "45%", "navy"]
+];
 
-function formatDate(dateValue) {
-  if (!dateValue) return "-";
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+const learners = [
+  ["Aarav Sharma", "92%", "red"],
+  ["Diya Patel", "78%", "yellow"],
+  ["Rohan Verma", "85%", "green"],
+  ["Meera Singh", "90%", "green"]
+];
+
+const testRows = [
+  ["Quiz 1", ["Math: 97%", "Physics: 80%", "Chem: 88%"]],
+  ["Project 1", ["Math: 95%", "Physics: 80%", "Chem: 82%"]],
+  ["Unit Test 1", ["Math: 97%", "Physics: 80%", "Chem: 80%"]],
+  ["Presentation 1", ["Math: 78%", "Physics: 85%", "Chem: 70%"]]
+];
+
+const focusRows = [
+  ["Algebra", "72%", "92%", "blue"],
+  ["Mechanics", "58%", "86%", "orange"],
+  ["Organic Chemistry", "64%", "82%", "green"],
+  ["Essay Writing", "66%", "84%", "green"]
+];
+
+function RingChart({ label = "365", caption = "Total Students" }) {
+  return (
+    <div className="ring-chart">
+      <div className="ring-number">{label}</div>
+      <span>{caption}</span>
+    </div>
+  );
 }
 
 function MiniBars() {
@@ -30,18 +59,16 @@ function MiniBars() {
 }
 
 function LineChart({ labels, values, dashed = false }) {
-  const safeValues = values.length > 0 ? values : [0];
-  const max = Math.max(...safeValues, 1);
-  const step = safeValues.length > 1 ? 330 / (safeValues.length - 1) : 58;
-  const points = safeValues.map((value, index) => `${24 + index * step},${150 - (value / max) * 116}`).join(" ");
+  const max = Math.max(...values);
+  const points = values.map((value, index) => `${24 + index * 58},${150 - (value / max) * 116}`).join(" ");
 
   return (
     <div className="chart-panel">
       <svg viewBox="0 0 380 190" role="img" aria-label="Growth trend chart">
         {[40, 75, 110, 145].map((y) => <line className="chart-grid-line" x1="18" x2="354" y1={y} y2={y} key={y} />)}
         <polyline className={dashed ? "line-dashed" : "line-solid"} points={points} />
-        {safeValues.map((value, index) => {
-          const x = 24 + index * step;
+        {values.map((value, index) => {
+          const x = 24 + index * 58;
           const y = 150 - (value / max) * 116;
           return <circle className="line-dot" cx={x} cy={y} r="5" key={`${value}-${index}`} />;
         })}
@@ -51,257 +78,120 @@ function LineChart({ labels, values, dashed = false }) {
   );
 }
 
-function RingChart({ label, caption }) {
+function BarChart() {
+  const bars = [42, 30, 48, 72, 60, 74, 104];
+
   return (
-    <div className="ring-chart">
-      <div className="ring-number">{label}</div>
-      <span>{caption}</span>
+    <div className="bar-chart" aria-label="At-risk students by month">
+      {bars.map((height, index) => (
+        <div className="bar-stack" key={height}>
+          <span style={{ height: `${height}px` }} />
+          <i style={{ height: `${Math.max(18, height - 22)}px` }} />
+        </div>
+      ))}
+      <div className="chart-labels">{["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"].map((label) => <span key={label}>{label}</span>)}</div>
     </div>
   );
 }
 
-function FeedbackMarksView({ feedback, loading, error }) {
-  return (
-    <article className="module-card purple-module">
-      <h2>Feedback & Marks</h2>
-      {error && <div className="learning-status error" role="alert">{error}</div>}
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Assessment</th>
-            <th>Marks</th>
-            <th>Score</th>
-            <th>Status</th>
-            <th>Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {loading && <tr><td colSpan="6" className="table-message-cell">Loading feedback and marks...</td></tr>}
-          {!loading && !error && feedback.length === 0 && <tr><td colSpan="6" className="table-message-cell">No feedback and marks found.</td></tr>}
-          {!loading && feedback.map((item, index) => {
-            const percent = toPercent(item.score, item.total_marks);
-            return (
-              <tr key={item.response_id}>
-                <td>{index + 1}</td>
-                <td>{item.assessment_title}</td>
-                <td>{Number(item.score || 0)} / {Number(item.total_marks || 100)}</td>
-                <td><span className={`status-pill ${percent >= 75 ? "completed" : percent >= 50 ? "in-progress" : "overdue"}`}>{percent}%</span></td>
-                <td>{item.completed_flag ? "Completed" : "Pending"}</td>
-                <td>{formatDate(item.created_datetime)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </article>
-  );
-}
-
-function TestListView({ title, assessments, loading, error }) {
-  return (
-    <article className="module-card purple-module">
-      <h2>{title}</h2>
-      {error && <div className="learning-status error" role="alert">{error}</div>}
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Test Title</th>
-            <th>Total Marks</th>
-            <th>Score</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {loading && <tr><td colSpan="5" className="table-message-cell">Loading assessments...</td></tr>}
-          {!loading && !error && assessments.length === 0 && <tr><td colSpan="5" className="table-message-cell">No assessments found.</td></tr>}
-          {!loading && assessments.map((item, index) => (
-            <tr key={item.response_id}>
-              <td>{index + 1}</td>
-              <td>{item.assessment_title}</td>
-              <td>{Number(item.total_marks || 100)}</td>
-              <td>{Number(item.score || 0)}</td>
-              <td><span className={`status-pill ${item.completed_flag ? "completed" : "not-started"}`}>{item.completed_flag ? "Completed" : "Pending"}</span></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </article>
-  );
-}
-
-function StudentAnalysisView({ analysis, loading, error }) {
-  const assessments = analysis?.assessments || [];
-  const summary = analysis?.summary || {};
-  const average = Math.round(Number(summary.average_percent || 0));
-  const labels = assessments.map((item) => item.assessment_title.replace(/^(Unit Test|Mock Test|Quiz|Assessment) - /, ""));
-  const values = assessments.map((item) => toPercent(item.score, item.total_marks));
+function Heatmap({ compact = false }) {
+  const colors = ["green", "lime", "yellow", "orange", "red"];
+  const rows = compact ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun"] : ["Mon", "Tue", "Wed", "Thu", "Sat"];
+  const cols = compact ? ["Math", "Phys", "Chem", "Bio", "Eng"] : ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
 
   return (
-    <section className="assessment-dashboard student-analysis-view">
-      <div className="assessment-dashboard-head">
-        <h2>Student Analysis</h2>
-        <div className="tiny-avatar">AS</div>
+    <div className={`heatmap ${compact ? "subject-heatmap" : ""}`}>
+      <div className="heatmap-body">
+        {rows.map((row, rowIndex) => (
+          <div className="heatmap-row" key={row}>
+            <span>{row}</span>
+            {cols.map((col, colIndex) => <i className={colors[(rowIndex + colIndex * 2) % colors.length]} key={`${row}-${col}`} />)}
+          </div>
+        ))}
       </div>
-      {error && <div className="learning-status error" role="alert">{error}</div>}
-      {loading && <div className="table-message-cell">Loading student analysis...</div>}
-      {!loading && (
-        <div className="analysis-grid">
-          <article className="analysis-card performance-card">
-            <h3>Overall Performance</h3>
-            <p>Average of all assessment scores</p>
-            <div className="performance-row">
-              <RingChart label={`${average}%`} caption="Overall Average" />
-              <div className="legend-list subjects">
-                <span>Tests: {Number(summary.assessment_count || 0)}</span>
-                <span>Best: {Math.round(Number(summary.best_percent || 0))}%</span>
-                <span>Lowest: {Math.round(Number(summary.lowest_percent || 0))}%</span>
-                <span>Average: {average}%</span>
-              </div>
+      <div className="heatmap-labels">{cols.map((col) => <span key={col}>{col}</span>)}</div>
+    </div>
+  );
+}
+
+function TeacherRemarkView() {
+  return (
+    <section className="assessment-dashboard">
+      <div className="assessment-dashboard-head">
+        <h2>Dashboard</h2>
+        <div className="dashboard-actions"><span>!</span><span>...</span><div className="tiny-avatar">AS</div></div>
+      </div>
+      <div className="analysis-grid">
+        <article className="analysis-card performance-card">
+          <h3>Performance Overview</h3>
+          <div className="performance-row">
+            <RingChart />
+            <div className="legend-list">
+              {["Excellent 40%", "Good 30%", "Average 20%", "Needs Support 10%"].map((item) => <span key={item}>{item}</span>)}
             </div>
-          </article>
-          <article className="analysis-card">
-            <h3>Result Timeline</h3>
-            <LineChart labels={labels} values={values} />
-          </article>
-          <article className="analysis-card">
-            <h3>Detailed Performance</h3>
-            <div className="test-performance-list">
-              {assessments.map((item) => (
-                <div className="test-row" key={item.response_id}>
-                  <strong>{item.assessment_title}</strong>
-                  <span>{Number(item.score || 0)} / {Number(item.total_marks || 100)} | {toPercent(item.score, item.total_marks)}%</span>
-                </div>
-              ))}
-            </div>
-          </article>
-          <article className="analysis-card">
-            <h3>Learning Progress</h3>
-            <div className="learner-list">
-              {assessments.map((item) => (
-                <div className="learner-row" key={item.response_id}>
-                  <i className={toPercent(item.score, item.total_marks) >= 80 ? "green" : toPercent(item.score, item.total_marks) >= 60 ? "yellow" : "red"} />
-                  <span>{item.assessment_title}</span>
-                  <MiniBars />
-                  <strong>{toPercent(item.score, item.total_marks)}%</strong>
-                </div>
-              ))}
-            </div>
-          </article>
-        </div>
-      )}
+          </div>
+        </article>
+        <article className="analysis-card"><h3>At-Risk Students</h3><BarChart /></article>
+        <article className="analysis-card">
+          <h3>Top Subjects</h3>
+          <div className="subject-list">{subjectScores.map(([name, score, tone]) => <div className="subject-row" key={name}><i className={tone}>{name[0]}</i><span>{name}</span><strong>{score}</strong></div>)}</div>
+        </article>
+        <article className="analysis-card"><h3>Engagement Heatmap</h3><Heatmap /></article>
+        <article className="analysis-card">
+          <h3>Learning Progress</h3>
+          <div className="learner-list">{learners.map(([name, score, tone]) => <div className="learner-row" key={name}><i className={tone} /><div className="tiny-avatar">{name.split(" ").map((part) => part[0]).join("")}</div><span>{name}</span><MiniBars /><strong>{score}</strong></div>)}</div>
+        </article>
+        <article className="analysis-card"><h3>Growth Trend</h3><LineChart labels={["Jan", "Feb", "Mar", "Apr", "May", "Jun"]} values={[40, 210, 190, 340, 260, 420, 660]} /></article>
+      </div>
     </section>
   );
 }
 
-function TeacherRemarkView({ remarks, loading, error }) {
+function StudentAnalysisView() {
   return (
-    <section className="assessment-dashboard">
+    <section className="assessment-dashboard student-analysis-view">
       <div className="assessment-dashboard-head">
-        <h2>Teacher Remark</h2>
-        <div className="dashboard-actions"><span>!</span><span>...</span><div className="tiny-avatar">AS</div></div>
+        <h2>Student Self-Assessment: Academic Year 2023-24</h2>
+        <div className="tiny-avatar">AS</div>
       </div>
-      {error && <div className="learning-status error" role="alert">{error}</div>}
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Item</th>
-            <th>Teacher</th>
-            <th>Marks</th>
-            <th>Remark</th>
-            <th>Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {loading && <tr><td colSpan="6" className="table-message-cell">Loading teacher remarks...</td></tr>}
-          {!loading && !error && remarks.length === 0 && <tr><td colSpan="6" className="table-message-cell">No teacher remarks found.</td></tr>}
-          {!loading && remarks.map((remark, index) => (
-            <tr key={remark.submission_id}>
-              <td>{index + 1}</td>
-              <td>{remark.item_title}</td>
-              <td>{remark.teacher_name || "-"}</td>
-              <td>{remark.marks_obtained ?? "-"}</td>
-              <td>{remark.teacher_remarks || "-"}</td>
-              <td>{formatDate(remark.submitted_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="analysis-grid">
+        <article className="analysis-card performance-card">
+          <h3>Final Subject Performance</h3>
+          <p>(Average of all Tests)</p>
+          <div className="performance-row">
+            <RingChart label="88%" caption="Overall Average" />
+            <div className="legend-list subjects">{["Math", "Physics", "Chemistry", "Biology"].map((item) => <span key={item}>{item}</span>)}</div>
+          </div>
+        </article>
+        <article className="analysis-card"><h3>Test Result Timeline</h3><LineChart labels={["Quarter 1", "Mid-Term", "Quarter 2", "Final Exam"]} values={[78, 80, 93, 94]} /></article>
+        <article className="analysis-card">
+          <h3>Detailed Test Performance by Subject</h3>
+          <div className="test-performance-list">{testRows.map(([name, scores]) => <div className="test-row" key={name}><strong>{name}</strong><span>{scores.join("  |  ")}</span></div>)}</div>
+        </article>
+        <article className="analysis-card"><h3>Study Subject Distribution Heatmap</h3><Heatmap compact /></article>
+        <article className="analysis-card">
+          <h3>Focus Area Improvements</h3>
+          <div className="focus-list">{focusRows.map(([name, before, after, tone]) => <div className="focus-row" key={name}><strong>{name}</strong><div><span style={{ width: before }} /><i className={tone} style={{ width: after }} /></div></div>)}</div>
+        </article>
+        <article className="analysis-card"><h3>Overall Growth Trend</h3><LineChart labels={["Quarter 1", "Mid-Term", "Quarter 2", "Final Exam"]} values={[20, 64, 85, 116]} dashed /></article>
+      </div>
     </section>
   );
 }
 
 export default function AssessmentsPage() {
   const [activeOption, setActiveOption] = useState("unit-test");
-  const [studentId, setStudentId] = useState(null);
-  const [feedback, setFeedback] = useState([]);
-  const [analysis, setAnalysis] = useState(null);
-  const [remarks, setRemarks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [showEvaluation, setShowEvaluation] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadStudent() {
-      try {
-        const response = await fetch(`${API_BASE_URL}/students/current`);
-        const data = await response.json().catch(() => ({}));
-        if (!cancelled && response.ok && data.student?.student_id) {
-          setStudentId(data.student.student_id);
-        }
-      } catch {
-        if (!cancelled) setError("Unable to load the current student.");
-      }
-    }
-    loadStudent();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  function handleUnitTest() {
+    setActiveOption("unit-test");
+    setShowEvaluation(false);
+  }
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadAssessmentData() {
-      setLoading(true);
-      setError("");
-      try {
-        const params = new URLSearchParams();
-        if (studentId) params.set("student_id", String(studentId));
-        const suffix = params.toString() ? `?${params.toString()}` : "";
-        const [feedbackResponse, analysisResponse, remarksResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/assessment-feedback${suffix}`),
-          fetch(`${API_BASE_URL}/student-analysis${suffix}`),
-          fetch(`${API_BASE_URL}/teacher-remarks${suffix}`)
-        ]);
-        const [feedbackData, analysisData, remarksData] = await Promise.all([
-          feedbackResponse.json().catch(() => ({})),
-          analysisResponse.json().catch(() => ({})),
-          remarksResponse.json().catch(() => ({}))
-        ]);
-        if (!feedbackResponse.ok) throw new Error(feedbackData.detail || "Unable to load assessment feedback.");
-        if (!analysisResponse.ok) throw new Error(analysisData.detail || "Unable to load student analysis.");
-        if (!remarksResponse.ok) throw new Error(remarksData.detail || "Unable to load teacher remarks.");
-        if (!cancelled) {
-          setFeedback(Array.isArray(feedbackData.feedback) ? feedbackData.feedback : []);
-          setAnalysis(analysisData);
-          setRemarks(Array.isArray(remarksData.remarks) ? remarksData.remarks : []);
-        }
-      } catch (loadError) {
-        if (!cancelled) setError(loadError.message || "Unable to load assessment data.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    loadAssessmentData();
-    return () => {
-      cancelled = true;
-    };
-  }, [studentId]);
-
-  const unitTests = useMemo(() => feedback.filter((item) => item.assessment_title.toLowerCase().includes("unit")), [feedback]);
-  const mockTests = useMemo(() => feedback.filter((item) => item.assessment_title.toLowerCase().includes("mock")), [feedback]);
+  function handleAiEvaluation() {
+    setActiveOption("unit-test");
+    setShowEvaluation(true);
+  }
 
   return (
     <DashboardShell>
@@ -309,18 +199,64 @@ export default function AssessmentsPage() {
         <StudyTabs />
         <div className="module-content-area assessment-content-area">
           <div className="module-action-grid assessment-option-grid">
-            <button className={`module-action ${activeOption === "unit-test" ? "active" : ""}`} type="button" onClick={() => setActiveOption("unit-test")}>Unit Test</button>
-            <button className={`module-action ${activeOption === "mock-test" ? "active" : ""}`} type="button" onClick={() => setActiveOption("mock-test")}>Mock Test</button>
-            <button className={`module-action ${activeOption === "feedback" ? "active" : ""}`} type="button" onClick={() => setActiveOption("feedback")}>Feedback & Marks</button>
+            <button className={`module-action ${activeOption === "unit-test" ? "active" : ""}`} type="button" onClick={handleUnitTest}>Unit Test</button>
+            <button className="module-action" type="button">Mock Test</button>
             <button className={`module-action ${activeOption === "student-analysis" ? "active" : ""}`} type="button" onClick={() => setActiveOption("student-analysis")}>Student Analysis</button>
             <button className={`module-action ${activeOption === "teacher-remark" ? "active" : ""}`} type="button" onClick={() => setActiveOption("teacher-remark")}>Teacher Remark</button>
           </div>
 
-          {activeOption === "unit-test" && <TestListView title="Unit Test" assessments={unitTests} loading={loading} error={error} />}
-          {activeOption === "mock-test" && <TestListView title="Mock Test" assessments={mockTests} loading={loading} error={error} />}
-          {activeOption === "feedback" && <FeedbackMarksView feedback={feedback} loading={loading} error={error} />}
-          {activeOption === "student-analysis" && <StudentAnalysisView analysis={analysis} loading={loading} error={error} />}
-          {activeOption === "teacher-remark" && <TeacherRemarkView remarks={remarks} loading={loading} error={error} />}
+          {activeOption === "unit-test" && (
+            <div className="quiz-layout assessment-layout">
+              <article className="module-card purple-module">
+                <div className="card-title-row">
+                  <h2>{unitTest.title}</h2>
+                  <span className={`status-pill ${showEvaluation ? "completed" : "in-progress"}`}>{showEvaluation ? "Evaluated" : "Ready"}</span>
+                </div>
+
+                <div className="meta-row">
+                  <span>{unitTest.subject}</span>
+                  <span>{unitTest.chapter}</span>
+                  <span>Total Marks: 10</span>
+                </div>
+
+                <div className="quiz-question-list">
+                  <fieldset className="quiz-question">
+                    <legend>1. {unitTest.question}</legend>
+                    <div className="assessment-answer-box">
+                      <span>Student Answer</span>
+                      <p>{unitTest.studentAnswer}</p>
+                    </div>
+                  </fieldset>
+                </div>
+
+                <div className="quiz-submit-row">
+                  <button className="primary-button" type="button" onClick={handleAiEvaluation}>AI Evaluation</button>
+                  <button className="soft-button" type="button" onClick={handleUnitTest}>Reset</button>
+                </div>
+              </article>
+
+              <article className="module-card latest-result-card">
+                <h2>AI Evaluation</h2>
+                <div className="result-grid quiz-result-grid">
+                  <div><span>Chapter</span><strong>{unitTest.chapter}</strong></div>
+                  <div><span>Score</span><strong className="score-text">{showEvaluation ? "8 / 10" : "- / 10"}</strong></div>
+                  <div><span>Status</span><strong>{showEvaluation ? "Completed" : "Pending"}</strong></div>
+                </div>
+
+                {showEvaluation && (
+                  <div className="quiz-score-card assessment-ai-card">
+                    <strong>AI Answer</strong>
+                    <p>{unitTest.aiAnswer}</p>
+                    <strong>Feedback</strong>
+                    <p>Your answer is correct and clear. Add points about accountability and peaceful change of government to make it stronger.</p>
+                  </div>
+                )}
+              </article>
+            </div>
+          )}
+
+          {activeOption === "student-analysis" && <StudentAnalysisView />}
+          {activeOption === "teacher-remark" && <TeacherRemarkView />}
         </div>
       </section>
     </DashboardShell>
