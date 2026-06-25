@@ -16,12 +16,37 @@ const settingsItems = [
 ];
 
 const loginServiceUrl = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
+const loginServiceSignOutUrl =
+  process.env.NEXT_PUBLIC_LOGIN_SIGNOUT_URL ||
+  `${loginServiceUrl}/api/auth/signout?callbackUrl=${encodeURIComponent(loginServiceUrl)}`;
 
-function handleLogout(event) {
+async function handleLogout(event) {
   event.preventDefault();
   window.localStorage.clear();
   window.sessionStorage.clear();
-  window.location.assign(loginServiceUrl);
+
+  try {
+    const csrfResponse = await fetch(`${loginServiceUrl}/api/auth/csrf`, {
+      credentials: "include"
+    });
+    const { csrfToken } = await csrfResponse.json();
+    const signOutResponse = await fetch(`${loginServiceUrl}/api/auth/signout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        callbackUrl: loginServiceUrl,
+        csrfToken,
+        json: "true"
+      }),
+      credentials: "include"
+    });
+    const signOutData = await signOutResponse.json();
+    window.location.assign(signOutData.url || loginServiceUrl);
+  } catch {
+    window.location.assign(loginServiceSignOutUrl);
+  }
 }
 
 const panels = [
