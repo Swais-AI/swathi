@@ -54,21 +54,7 @@ function Icon({ name, className = "" }) {
 }
 
 function BrandMark() {
-  return (
-    <svg className="brand-mark" viewBox="0 0 72 58" aria-hidden="true">
-      <path
-        className="logo-ray"
-        d="M36 0l3.2 13.1L48.4 3l-3.7 13L58 10.7l-9.6 9.1 13.4 1.4-12.6 4.6 11.7 6.7-13.4-1.1 7.4 11.3-11.1-7.2-2 13.3L36 36.6l-5.8 12.2-2-13.3-11.1 7.2 7.4-11.3-13.4 1.1 11.7-6.7-12.6-4.6 13.4-1.4-9.6-9.1L27.3 16 23.6 3l9.2 10.1L36 0z"
-      />
-      <path className="logo-sun" d="M19.8 35.5c0-9.1 7.2-16.4 16.2-16.4s16.2 7.3 16.2 16.4v1.2H19.8z" />
-      <path className="logo-book" d="M34.5 41.4c-7.5-5.5-16.1-7.4-25.9-5.6v9.7c9.8-1.9 18.5.1 25.9 5.7z" />
-      <path className="logo-book" d="M37.5 41.4c7.5-5.5 16.1-7.4 25.9-5.6v9.7c-9.8-1.9-18.5.1-25.9 5.7z" />
-      <path className="logo-page" d="M34.6 45.6c-8-5.1-16.4-6.7-25.3-4.8" />
-      <path className="logo-page" d="M37.4 45.6c8-5.1 16.4-6.7 25.3-4.8" />
-      <path className="logo-page" d="M34.6 50.5c-8-5-16.4-6.7-25.3-4.8" />
-      <path className="logo-page" d="M37.4 50.5c8-5 16.4-6.7 25.3-4.8" />
-    </svg>
-  );
+  return <img className="brand-logo" src="/sgslogo.jpeg" alt="SGS Senior Secondary School logo" />;
 }
 
 function Avatar() {
