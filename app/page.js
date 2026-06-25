@@ -222,7 +222,10 @@ export default function DashboardPage() {
                 <option>Telugu</option>
               </select>
             </label>
-            <NotificationBell />
+            <button className="bell-button" aria-label="Notifications">
+              <span className="bell-icon" aria-hidden="true" />
+              <span className="badge">3</span>
+            </button>
           </div>
         </header>
 
