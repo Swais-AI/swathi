@@ -15,6 +15,15 @@ const settingsItems = [
   ["help", "Help & Support", "/help"]
 ];
 
+const loginServiceUrl = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
+
+function handleLogout(event) {
+  event.preventDefault();
+  window.localStorage.clear();
+  window.sessionStorage.clear();
+  window.location.assign(loginServiceUrl);
+}
+
 function Icon({ name, className = "" }) {
   return <span className={`icon ${name} ${className}`} aria-hidden="true" />;
 }
@@ -100,7 +109,7 @@ export default function DashboardShell({ children }) {
 
         <div className="nav-divider" />
 
-        <a className="nav-item logout-link" href="#">
+        <a className="nav-item logout-link" href={loginServiceUrl} onClick={handleLogout}>
           <Icon name="power" />
           <span>Logout</span>
         </a>
