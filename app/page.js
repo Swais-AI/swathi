@@ -215,10 +215,6 @@ export default function DashboardPage() {
               </select>
             </label>
             <NotificationBell />
-            <button className="top-logout" type="button" onClick={handleLogout}>
-              <span className="exit-icon" aria-hidden="true" />
-              <span>{t("logout")}</span>
-            </button>
           </div>
         </header>
 
