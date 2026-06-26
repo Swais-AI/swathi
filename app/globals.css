@@ -254,6 +254,11 @@ button {
   color: #fff;
 }
 
+.notification-menu {
+  position: relative;
+  display: inline-flex;
+}
+
 .badge {
   position: absolute;
   top: 0;
@@ -267,6 +272,98 @@ button {
   color: #fff;
   font-size: 14px;
   font-weight: 800;
+}
+
+.notice-dropdown {
+  width: min(380px, calc(100vw - 32px));
+  max-height: 430px;
+  overflow: auto;
+  position: absolute;
+  top: calc(100% + 12px);
+  right: -12px;
+  z-index: 30;
+  padding: 12px;
+  border: 1px solid #d7e2ef;
+  border-radius: 10px;
+  background: #fff;
+  color: #07133c;
+  box-shadow: 0 18px 45px rgba(5, 22, 40, 0.24);
+}
+
+.notice-dropdown-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 4px 10px;
+  border-bottom: 1px solid #e4ebf4;
+}
+
+.notice-dropdown-head strong {
+  font-size: 18px;
+}
+
+.notice-dropdown-head span {
+  min-width: 26px;
+  min-height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #eef5ff;
+  color: #0e4d87;
+  font-weight: 900;
+}
+
+.notice-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px 4px;
+  border-bottom: 1px solid #edf2f8;
+}
+
+.notice-item:last-child {
+  border-bottom: 0;
+}
+
+.notice-item div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notice-item strong {
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.notice-item time {
+  flex: 0 0 auto;
+  color: #52607b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.notice-item p,
+.notice-message {
+  margin: 0;
+  color: #263469;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.notice-item > span {
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff7ef;
+  color: #ff5a00;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.notice-message {
+  padding: 12px 4px 4px;
 }
 
 .top-logout {

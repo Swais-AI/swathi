@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import NotificationBell from "./notification-bell";
 
 const navItems = [
   ["home", "Dashboard", "/", true],
@@ -238,10 +239,7 @@ export default function DashboardPage() {
                 <option>Telugu</option>
               </select>
             </label>
-            <button className="bell-button" aria-label="Notifications">
-              <span className="bell-icon" aria-hidden="true" />
-              <span className="badge">3</span>
-            </button>
+            <NotificationBell />
           </div>
         </header>
 

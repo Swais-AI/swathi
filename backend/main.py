@@ -90,6 +90,94 @@ def database_health_check():
     return {"status": "ok", "database": "connected"}
 
 
+@app.get("/students/current")
+def get_current_student():
+    query = """
+        SELECT
+            student_id,
+            full_name,
+            roll_no,
+            admission_no,
+            COALESCE(NULLIF(BTRIM(class_name), ''), class_id::text) AS class_name,
+            section
+        FROM sgs_student_master
+        WHERE COALESCE(record_status, 'Active') = 'Active'
+          AND COALESCE(is_active, true) = true
+        ORDER BY
+            CASE WHEN admission_no IS NULL THEN 1 ELSE 0 END,
+            student_id
+        LIMIT 1;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query)
+                student = cursor.fetchone()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Student master table is missing. Create sgs_student_master in PostgreSQL.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch student details.",
+        ) from error
+
+    if student is None:
+        raise HTTPException(status_code=404, detail="No active student found.")
+
+    return {"student": student}
+
+
+@app.get("/notices")
+def get_notices(
+    student_class: str | None = Query(default=None, min_length=1),
+):
+    filters = ["COALESCE(record_status, 'Active') = 'Active'"]
+    params: list[str] = []
+
+    if student_class is not None:
+        filters.append(
+            "(applicable_class IS NULL OR BTRIM(applicable_class) = '' OR LOWER(applicable_class) IN ('all', LOWER(%s)))"
+        )
+        params.append(student_class.strip())
+
+    query = f"""
+        SELECT
+            notice_id,
+            notice_title,
+            notice_text,
+            notice_date,
+            applicable_class,
+            posted_by,
+            created_datetime
+        FROM sgs_notice_board
+        WHERE {' AND '.join(filters)}
+        ORDER BY
+            notice_date DESC NULLS LAST,
+            created_datetime DESC NULLS LAST,
+            notice_id DESC
+        LIMIT 10;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query, params)
+                notices = cursor.fetchall()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Notice board table is missing. Confirm sgs_notice_board exists.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch notices.") from error
+
+    return {"notices": notices}
+
+
 def build_learning_profile_payload(profile: LearningProfileInput):
     classification = classify_reader(
         profile.reading_time_minutes,
