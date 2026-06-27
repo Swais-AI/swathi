@@ -296,30 +296,84 @@ export default function AiLearningPathPage() {
           </article>
 
           {learningPath && (
-            <article className="module-card generated-path-card">
-              <div className="card-title-row">
-                <div>
-                  <h2>{learningPath.track_title}</h2>
-                  <p>{learningPath.summary}</p>
+            <>
+              <article className="module-card generated-path-card">
+                <div className="card-title-row">
+                  <div>
+                    <h2>{learningPath.track_title}</h2>
+                    <p>{learningPath.summary}</p>
+                  </div>
+                  <span className="status-pill in-progress">{learningPath.provider}</span>
                 </div>
-                <span className="status-pill in-progress">{learningPath.provider}</span>
-              </div>
-              <div className="learning-focus-box">
-                <strong>Focus Area</strong>
-                <p>{learningPath.focus_area}</p>
-              </div>
-              <ol className="learning-step-list">
-                {learningPath.steps.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ol>
-              <div className="recommended-materials">
-                <h3>Recommended Material</h3>
-                {learningPath.recommended_materials.map((material) => (
-                  <span key={material}>{material}</span>
-                ))}
-              </div>
-            </article>
+                <div className="learning-focus-box">
+                  <strong>Focus Area</strong>
+                  <p>{learningPath.focus_area}</p>
+                </div>
+                <ol className="learning-step-list">
+                  {learningPath.steps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+                <div className="recommended-materials">
+                  <h3>Recommended Material</h3>
+                  {learningPath.recommended_materials.map((material) => (
+                    <span key={material}>{material}</span>
+                  ))}
+                </div>
+              </article>
+
+              <article className="module-card generated-content-preview-card">
+                <div className="card-title-row">
+                  <div>
+                    <h2>Generated Content Preview</h2>
+                    <p>Personalized study content layout based on the selected reader type.</p>
+                  </div>
+                  <span className="status-pill not-started">Design Preview</span>
+                </div>
+
+                <div className="content-preview-toolbar" aria-label="Generated content sections">
+                  <button className="active" type="button">Simple Notes</button>
+                  <button type="button">Key Terms</button>
+                  <button type="button">Recap</button>
+                  <button type="button">Practice</button>
+                </div>
+
+                <div className="content-preview-layout">
+                  <section className="content-preview-main">
+                    <div className="preview-section-head">
+                      <span className="preview-icon notes" aria-hidden="true" />
+                      <div>
+                        <h3>Simple Notes</h3>
+                        <p>Chapter explanation will be generated here.</p>
+                      </div>
+                    </div>
+                    <div className="preview-empty-block large" />
+                    <div className="preview-empty-block" />
+                    <div className="preview-empty-block short" />
+                  </section>
+
+                  <aside className="content-preview-side">
+                    <section>
+                      <h3>Content Structure</h3>
+                      <div className="preview-check-list">
+                        <span>Reading blocks</span>
+                        <span>Keyword support</span>
+                        <span>Quick recap</span>
+                        <span>Practice prompts</span>
+                      </div>
+                    </section>
+                    <section>
+                      <h3>Actions</h3>
+                      <div className="content-preview-actions">
+                        <button className="soft-button" type="button">Regenerate</button>
+                        <button className="soft-button" type="button">Save Content</button>
+                        <button className="soft-button" type="button">Download PDF</button>
+                      </div>
+                    </section>
+                  </aside>
+                </div>
+              </article>
+            </>
           )}
         </div>
       </section>
