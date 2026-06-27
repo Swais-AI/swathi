@@ -154,6 +154,46 @@ function StudentAnalysisView() {
         <h2>Student Self-Assessment: Academic Year 2023-24</h2>
         <div className="tiny-avatar">AS</div>
       </div>
+      <article className="self-assessment-card" aria-label="Self assessment check-in">
+        <div>
+          <h3>Self Assessment Check-in</h3>
+          <p>Record subject confidence before reviewing graphical performance.</p>
+        </div>
+        <div className="self-assessment-controls">
+          <label>
+            <span>Subject</span>
+            <select defaultValue="All Subjects" aria-label="Select self assessment subject">
+              <option>All Subjects</option>
+              <option>Math</option>
+              <option>Physics</option>
+              <option>Chemistry</option>
+              <option>Biology</option>
+              <option>Social Science</option>
+            </select>
+          </label>
+          <label>
+            <span>Understanding</span>
+            <select defaultValue="Medium" aria-label="Select understanding level">
+              <option>Low</option>
+              <option>Medium</option>
+              <option>High</option>
+            </select>
+          </label>
+          <label>
+            <span>Confidence</span>
+            <input type="range" min="1" max="10" defaultValue="7" aria-label="Confidence level" />
+          </label>
+          <label>
+            <span>Practice Status</span>
+            <select defaultValue="In Progress" aria-label="Select practice status">
+              <option>Not Started</option>
+              <option>In Progress</option>
+              <option>Completed</option>
+            </select>
+          </label>
+          <button className="primary-button" type="button">Submit Check-in</button>
+        </div>
+      </article>
       <div className="analysis-grid">
         <article className="analysis-card performance-card">
           <h3>Final Subject Performance</h3>
