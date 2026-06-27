@@ -1,8 +1,10 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import LanguagePageTranslator from "./language-page-translator";
 import NotificationBell from "./notification-bell";
 import VoiceTextTools from "./voice-text-tools";
+import { useLanguage } from "./i18n";
 
 const navItems = [
   ["home", "Dashboard", "/"],
@@ -80,6 +82,7 @@ function Avatar() {
 
 export default function DashboardShell({ children }) {
   const pathname = usePathname();
+  const { language, languageOptions, setLanguage } = useLanguage();
 
   function isActive(href) {
     if (href === "/") {
@@ -147,10 +150,10 @@ export default function DashboardShell({ children }) {
           <div className="top-actions">
             <label className="language-select">
               <span>Language</span>
-              <select defaultValue="English" aria-label="Select language">
-                <option>English</option>
-                <option>Hindi</option>
-                <option>Telugu</option>
+              <select value={language} aria-label="Select language" onChange={(event) => setLanguage(event.target.value)}>
+                {languageOptions.map((option) => (
+                  <option value={option.code} key={option.code}>{option.label}</option>
+                ))}
               </select>
             </label>
             <VoiceTextTools />
@@ -158,6 +161,7 @@ export default function DashboardShell({ children }) {
           </div>
         </header>
 
+        <LanguagePageTranslator />
         {children}
       </section>
     </main>

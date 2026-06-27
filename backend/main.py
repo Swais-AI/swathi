@@ -1,6 +1,10 @@
 import os
+import json
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 import psycopg
 from dotenv import load_dotenv
@@ -56,6 +60,12 @@ class LearningProfileInput(BaseModel):
     comprehension_score: int = Field(..., ge=0, le=100)
 
 
+class TextTranslationBatchInput(BaseModel):
+    texts: list[str] = Field(..., min_length=1, max_length=80)
+    target_language: str = Field(..., min_length=2, max_length=80)
+    source_language: str | None = Field(default=None, max_length=80)
+
+
 def get_database_url() -> str:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -70,6 +80,94 @@ def get_database_url() -> str:
 def get_connection():
     with psycopg.connect(get_database_url()) as connection:
         yield connection
+
+
+def extract_json_object(content: str) -> dict:
+    cleaned = content.strip()
+
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").strip()
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].strip()
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        parsed = json.loads(cleaned[start : end + 1])
+
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected a JSON object.")
+
+    return parsed
+
+
+def gemini_generate_json(prompt: str, max_output_tokens: int = 4096) -> dict:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+
+    base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").rstrip("/")
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    fallback_models = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-2.0-flash,gemini-2.0-flash-lite")
+    model_names = []
+
+    for model_name in [primary_model, *fallback_models.split(",")]:
+        cleaned_model = model_name.strip()
+        if cleaned_model and cleaned_model not in model_names:
+            model_names.append(cleaned_model)
+
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}],
+            }
+        ],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.25,
+            "maxOutputTokens": max_output_tokens,
+        },
+    }
+
+    errors = []
+    for model_name in model_names:
+        model = quote(model_name, safe="")
+        request = Request(
+            f"{base_url}/v1beta/models/{model}:generateContent?key={api_key}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urlopen(request, timeout=30) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            try:
+                error_body = json.loads(error.read().decode("utf-8"))
+                message = error_body.get("error", {}).get("message")
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                message = None
+            errors.append(f"{model_name}: {message or f'Gemini API error {error.code}.'}")
+            continue
+        except URLError as error:
+            errors.append(f"{model_name}: Gemini connection failed: {error.reason}")
+            continue
+
+        try:
+            parts = body["candidates"][0]["content"]["parts"]
+            content = "\n".join(part.get("text", "") for part in parts).strip()
+            return extract_json_object(content)
+        except (KeyError, IndexError, json.JSONDecodeError, ValueError):
+            errors.append(f"{model_name}: Gemini returned an invalid JSON response.")
+            continue
+
+    raise RuntimeError("Gemini translation failed. " + " | ".join(errors))
 
 
 @app.get("/health")
@@ -176,6 +274,51 @@ def get_notices(
         raise HTTPException(status_code=500, detail="Unable to fetch notices.") from error
 
     return {"notices": notices}
+
+
+@app.post("/ai/translate-batch")
+def translate_text_batch(payload: TextTranslationBatchInput):
+    source_language = payload.source_language or "auto-detect"
+    cleaned_texts = [str(text).strip()[:3000] for text in payload.texts if str(text).strip()]
+    if not cleaned_texts:
+        raise HTTPException(status_code=400, detail="No text provided for translation.")
+
+    prompt = f"""
+        Translate each item into {payload.target_language}.
+        Source language: {source_language}.
+
+        Return only valid JSON in this exact shape:
+        {{
+          "translations": ["translation for item 1", "translation for item 2"]
+        }}
+
+        Rules:
+        - Keep the same number and order of translations as the input list.
+        - Preserve numbers, names, and school subject terms.
+        - Do not add explanations.
+
+        Input list:
+        {json.dumps(cleaned_texts, ensure_ascii=False)}
+    """
+
+    try:
+        translation_data = gemini_generate_json(prompt, max_output_tokens=4096)
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    translations = translation_data.get("translations")
+    if not isinstance(translations, list):
+        raise HTTPException(status_code=502, detail="Gemini returned an invalid translation list.")
+
+    normalized = [str(item).strip() for item in translations]
+    if len(normalized) != len(cleaned_texts):
+        raise HTTPException(status_code=502, detail="Gemini returned a mismatched translation list.")
+
+    return {
+        "source_language": source_language,
+        "target_language": payload.target_language,
+        "translations": normalized,
+    }
 
 
 def build_learning_profile_payload(profile: LearningProfileInput):
