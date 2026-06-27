@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import NotificationBell from "./notification-bell";
+import VoiceTextTools from "./voice-text-tools";
 
 const navItems = [
   ["home", "Dashboard", "/"],
@@ -152,6 +153,7 @@ export default function DashboardShell({ children }) {
                 <option>Telugu</option>
               </select>
             </label>
+            <VoiceTextTools />
             <NotificationBell />
           </div>
         </header>
