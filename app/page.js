@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import NotificationBell from "./notification-bell";
+import VoiceTextTools from "./voice-text-tools";
 
 const navItems = [
   ["home", "Dashboard", "/", true],
@@ -239,6 +240,7 @@ export default function DashboardPage() {
                 <option>Telugu</option>
               </select>
             </label>
+            <VoiceTextTools />
             <NotificationBell />
           </div>
         </header>
