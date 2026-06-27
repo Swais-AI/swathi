@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import LanguagePageTranslator from "./language-page-translator";
 import NotificationBell from "./notification-bell";
 import VoiceTextTools from "./voice-text-tools";
+import { useLanguage } from "./i18n";
 
 const navItems = [
   ["home", "Dashboard", "/", true],
@@ -179,6 +181,7 @@ function StudyPanel({ panel, open, onToggle }) {
 
 export default function DashboardPage() {
   const [openPanel, setOpenPanel] = useState(null);
+  const { language, languageOptions, setLanguage } = useLanguage();
 
   return (
     <main className="app-shell">
@@ -234,10 +237,10 @@ export default function DashboardPage() {
           <div className="top-actions">
             <label className="language-select">
               <span>Language</span>
-              <select defaultValue="English" aria-label="Select language">
-                <option>English</option>
-                <option>Hindi</option>
-                <option>Telugu</option>
+              <select value={language} aria-label="Select language" onChange={(event) => setLanguage(event.target.value)}>
+                {languageOptions.map((option) => (
+                  <option value={option.code} key={option.code}>{option.label}</option>
+                ))}
               </select>
             </label>
             <VoiceTextTools />
@@ -245,6 +248,7 @@ export default function DashboardPage() {
           </div>
         </header>
 
+        <LanguagePageTranslator />
         <section className="content-grid" aria-label="Study modules">
           {panels.map((panel, index) => (
             <StudyPanel
