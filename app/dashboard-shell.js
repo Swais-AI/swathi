@@ -7,16 +7,16 @@ import VoiceTextTools from "./voice-text-tools";
 import { useLanguage } from "./i18n";
 
 const navItems = [
-  ["home", "Dashboard", "/"],
-  ["book-open", "Core Study", "/chapters"],
-  ["clipboard", "Assignments", "/assignments"],
-  ["target", "Assessments", "/assessments"],
-  ["chart", "My Progress", "/progress"]
+  ["home", "dashboard", "/"],
+  ["book-open", "coreStudy", "/chapters"],
+  ["clipboard", "assignments", "/assignments"],
+  ["target", "assessments", "/assessments"],
+  ["chart", "myProgress", "/progress"]
 ];
 
 const settingsItems = [
-  ["settings", "Settings", "/settings"],
-  ["help", "Help & Support", "/help"]
+  ["settings", "settings", "/settings"],
+  ["help", "helpSupport", "/help"]
 ];
 
 const loginServiceUrl = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
@@ -82,7 +82,7 @@ function Avatar() {
 
 export default function DashboardShell({ children }) {
   const pathname = usePathname();
-  const { language, languageOptions, setLanguage } = useLanguage();
+  const { language, languageOptions, setLanguage, t } = useLanguage();
 
   function isActive(href) {
     if (href === "/") {
@@ -104,10 +104,10 @@ export default function DashboardShell({ children }) {
         </div>
 
         <nav className="nav-list" aria-label="Student navigation">
-          {navItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+          {navItems.map(([icon, labelKey, href]) => (
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={labelKey}>
               <Icon name={icon} />
-              <span>{label}</span>
+              <span>{t(labelKey)}</span>
             </a>
           ))}
         </nav>
@@ -115,10 +115,10 @@ export default function DashboardShell({ children }) {
         <div className="nav-divider" />
 
         <nav className="nav-list compact" aria-label="Settings navigation">
-          {settingsItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+          {settingsItems.map(([icon, labelKey, href]) => (
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={labelKey}>
               <Icon name={icon} />
-              <span>{label}</span>
+              <span>{t(labelKey)}</span>
             </a>
           ))}
         </nav>
@@ -127,7 +127,7 @@ export default function DashboardShell({ children }) {
 
         <a className="nav-item logout-link" href={loginServiceUrl} onClick={handleLogout}>
           <Icon name="power" />
-          <span>Logout</span>
+          <span>{t("logout")}</span>
         </a>
       </aside>
 
@@ -136,20 +136,20 @@ export default function DashboardShell({ children }) {
           <div className="student-card">
             <Avatar />
             <div className="student-info">
-              <p>Welcome back,</p>
+              <p>{t("welcomeBack")}</p>
               <h1>Aarav</h1>
               <div className="chips">
-                <span>Roll No.: 23</span>
-                <span>Admission No.: 2024/08/0156</span>
-                <span>Class: Class 9</span>
-                <span>Section: A</span>
+                <span>{t("rollNo")}: 23</span>
+                <span>{t("admissionNo")}: 2024/08/0156</span>
+                <span>{t("classLabel")}: Class 9</span>
+                <span>{t("section")}: A</span>
               </div>
             </div>
           </div>
 
           <div className="top-actions">
             <label className="language-select">
-              <span>Language</span>
+              <span>{t("language")}</span>
               <select value={language} aria-label="Select language" onChange={(event) => setLanguage(event.target.value)}>
                 {languageOptions.map((option) => (
                   <option value={option.code} key={option.code}>{option.label}</option>
