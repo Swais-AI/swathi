@@ -71,6 +71,12 @@ class TextTranslationBatchInput(BaseModel):
     source_language: str | None = Field(default=None, max_length=80)
 
 
+class TextTranslationInput(BaseModel):
+    text: str = Field(..., min_length=1, max_length=12000)
+    target_language: str = Field(..., min_length=2, max_length=80)
+    source_language: str | None = Field(default=None, max_length=80)
+
+
 def get_database_url() -> str:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -281,134 +287,43 @@ def get_notices(
     return {"notices": notices}
 
 
-def normalize_quiz_questions(raw_questions) -> list[dict]:
-    if not isinstance(raw_questions, list):
-        raise ValueError("Quiz response must include a quiz array.")
+@app.post("/ai/translate-text")
+def translate_text(payload: TextTranslationInput):
+    source_language = payload.source_language or "auto-detect"
+    source_text = payload.text.strip()[:12000]
+    if not source_text:
+        raise HTTPException(status_code=400, detail="No text provided for translation.")
 
-    questions = []
-    for raw_item in raw_questions:
-        if not isinstance(raw_item, dict):
-            continue
-
-        question = str(raw_item.get("question") or "").strip()
-        options = raw_item.get("options")
-        answer = raw_item.get("answer")
-        explanation = str(raw_item.get("explanation") or "").strip()
-
-        if not question or not isinstance(options, list):
-            continue
-
-        cleaned_options = [str(option).strip() for option in options if str(option).strip()]
-        if len(cleaned_options) != 4:
-            continue
-
-        answer_index = None
-        if isinstance(answer, int) and 0 <= answer < len(cleaned_options):
-            answer_index = answer
-        elif isinstance(answer, str):
-            normalized_answer = answer.strip().casefold()
-            for index, option in enumerate(cleaned_options):
-                if option.casefold() == normalized_answer:
-                    answer_index = index
-                    break
-
-        if answer_index is None:
-            continue
-
-        questions.append(
-            {
-                "question": question,
-                "options": cleaned_options,
-                "answer": answer_index,
-                "explanation": explanation,
-            }
-        )
-
-    if not questions:
-        raise ValueError("No valid quiz questions were generated.")
-
-    return questions
-
-
-def fetch_chapter_for_quiz(chapter_id: int) -> dict:
-    query = """
-        SELECT
-            content.chapter_id,
-            COALESCE(NULLIF(BTRIM(content.content_title), ''), chapter.chapter_name, 'Chapter') AS chapter_title,
-            content.full_text_content
-        FROM sgs_chapter_content content
-        LEFT JOIN sgs_chapter_master chapter
-          ON chapter.chapter_id = content.chapter_id
-        WHERE content.chapter_id = %s
-          AND content.full_text_content IS NOT NULL
-          AND BTRIM(content.full_text_content) <> ''
-          AND COALESCE(content.is_active, true) = true
-          AND COALESCE(content.record_status, 'Active') = 'Active'
-        ORDER BY content.chapter_content_id
-        LIMIT 1;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (chapter_id,))
-                chapter = cursor.fetchone()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Chapter content table is missing. Create sgs_chapter_content in PostgreSQL.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch chapter content.") from error
-
-    if chapter is None:
-        raise HTTPException(status_code=404, detail="Chapter content not found.")
-
-    return chapter
-
-
-@app.post("/ai/generate-quiz")
-def generate_ai_quiz(payload: QuizGenerationInput):
-    chapter = fetch_chapter_for_quiz(payload.chapter_id)
-    content = str(chapter["full_text_content"])[:18000]
     prompt = f"""
-        You are an expert school teacher. Generate {payload.question_count} multiple-choice questions
-        from the chapter content below.
+        Translate the text into {payload.target_language}.
+        Source language: {source_language}.
 
         Return only valid JSON in this exact shape:
         {{
-          "quiz": [
-            {{
-              "question": "Question text",
-              "options": ["Option A", "Option B", "Option C", "Option D"],
-              "answer": "Exact correct option text",
-              "explanation": "One short explanation"
-            }}
-          ]
+          "translated_text": "translated text here"
         }}
 
         Rules:
-        - Use 4 options per question.
-        - Make only one option correct.
-        - Keep questions clear for a school student.
-        - Do not include markdown or extra text.
+        - Preserve numbers, names, and school subject terms.
+        - Do not add explanations.
 
-        Chapter content:
-        {content}
+        Text:
+        {source_text}
     """
 
     try:
-        quiz_data = gemini_generate_json(prompt)
-        questions = normalize_quiz_questions(quiz_data.get("quiz"))
+        translation_data = gemini_generate_json(prompt, max_output_tokens=3072)
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
-    except ValueError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    translated_text = str(translation_data.get("translated_text") or "").strip()
+    if not translated_text:
+        raise HTTPException(status_code=502, detail="Gemini returned an empty translation.")
 
     return {
-        "chapter_id": chapter["chapter_id"],
-        "chapter_title": chapter["chapter_title"],
-        "quiz": questions[: payload.question_count],
+        "source_language": source_language,
+        "target_language": payload.target_language,
+        "translated_text": translated_text,
     }
 
 
