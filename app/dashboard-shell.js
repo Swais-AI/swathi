@@ -11,7 +11,8 @@ const navItems = [
   ["book-open", "Core Study", "/chapters"],
   ["clipboard", "Assignments", "/assignments"],
   ["target", "Assessments", "/assessments"],
-  ["chart", "My Progress", "/progress"]
+  ["chart", "My Progress", "/progress"],
+  ["document", "AI Translator", "/ai-translator"]
 ];
 
 const settingsItems = [
