@@ -6,6 +6,7 @@ import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
 const API_BASE_URL = getApiBaseUrl();
+const AI_REQUEST_DELAY_MS = 15000;
 
 const languages = [
   "English",
@@ -34,6 +35,12 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 35000) {
   }
 }
 
+function waitBeforeAiRequest() {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, AI_REQUEST_DELAY_MS);
+  });
+}
+
 export default function AiTranslatorPage() {
   const [sourceLanguage, setSourceLanguage] = useState("Auto Detect");
   const [targetLanguage, setTargetLanguage] = useState("Hindi");
@@ -57,6 +64,7 @@ export default function AiTranslatorPage() {
     setTranslatedText("");
 
     try {
+      await waitBeforeAiRequest();
       const response = await fetchWithTimeout(`${API_BASE_URL}/ai/translate-text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
