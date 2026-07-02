@@ -1544,6 +1544,29 @@ button {
   border-color: #b9ddd6;
 }
 
+.material-title-row {
+  align-items: flex-start;
+}
+
+.material-filter-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.material-filter-row select {
+  min-height: 38px;
+  min-width: 190px;
+  padding: 0 10px;
+  border: 1px solid #ccd9e8;
+  border-radius: 7px;
+  background: #fff;
+  color: #07133c;
+  font-size: 15px;
+  font-weight: 700;
+}
+
 .quiz-card {
   border-color: #ffc9c3;
 }
@@ -1579,6 +1602,12 @@ button {
 
 .file-badge.text {
   color: #ff8500;
+}
+
+.table-message-cell {
+  color: #263469;
+  font-weight: 750;
+  text-align: center !important;
 }
 
 .download-icon-button {
@@ -1743,6 +1772,22 @@ button {
   color: #ff4b00;
   font-size: 16px;
   font-weight: 700;
+}
+
+.quiz-filter-row {
+  margin: 16px 0 12px;
+  justify-content: flex-start;
+}
+
+.quiz-explanation {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  background: #f8fbfe;
+  color: #27384d;
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 .quiz-submit-row {
