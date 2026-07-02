@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import NotificationBell from "./notification-bell";
 
 const navItems = [
   ["home", "Dashboard", "/"],
