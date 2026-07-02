@@ -66,6 +66,12 @@ class TextTranslationBatchInput(BaseModel):
     source_language: str | None = Field(default=None, max_length=80)
 
 
+class TextTranslationInput(BaseModel):
+    text: str = Field(..., min_length=1, max_length=12000)
+    target_language: str = Field(..., min_length=2, max_length=80)
+    source_language: str | None = Field(default=None, max_length=80)
+
+
 def get_database_url() -> str:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -274,6 +280,46 @@ def get_notices(
         raise HTTPException(status_code=500, detail="Unable to fetch notices.") from error
 
     return {"notices": notices}
+
+
+@app.post("/ai/translate-text")
+def translate_text(payload: TextTranslationInput):
+    source_language = payload.source_language or "auto-detect"
+    source_text = payload.text.strip()[:12000]
+    if not source_text:
+        raise HTTPException(status_code=400, detail="No text provided for translation.")
+
+    prompt = f"""
+        Translate the text into {payload.target_language}.
+        Source language: {source_language}.
+
+        Return only valid JSON in this exact shape:
+        {{
+          "translated_text": "translated text here"
+        }}
+
+        Rules:
+        - Preserve numbers, names, and school subject terms.
+        - Do not add explanations.
+
+        Text:
+        {source_text}
+    """
+
+    try:
+        translation_data = gemini_generate_json(prompt, max_output_tokens=3072)
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    translated_text = str(translation_data.get("translated_text") or "").strip()
+    if not translated_text:
+        raise HTTPException(status_code=502, detail="Gemini returned an empty translation.")
+
+    return {
+        "source_language": source_language,
+        "target_language": payload.target_language,
+        "translated_text": translated_text,
+    }
 
 
 @app.post("/ai/translate-batch")

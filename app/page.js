@@ -11,7 +11,8 @@ const navItems = [
   ["book-open", "Core Study", "/chapters"],
   ["clipboard", "Assignments", "/assignments"],
   ["target", "Assessments", "/assessments"],
-  ["chart", "My Progress", "/progress"]
+  ["chart", "My Progress", "/progress"],
+  ["document", "AI Translator", "/ai-translator"]
 ];
 
 const settingsItems = [
@@ -62,7 +63,8 @@ const panels = [
       ["book-open", "1) Chapters"],
       ["document", "2) Study Material"],
       ["question", "3) Quizzes"],
-      ["chart", "4) AI Learning Path"]
+      ["chart", "4) AI Learning Path"],
+      ["document", "5) AI Translator"]
     ]
   },
   {
@@ -164,7 +166,8 @@ function StudyPanel({ panel, open, onToggle }) {
             "1) Chapters": "/chapters",
             "2) Study Material": "/study-material",
             "3) Quizzes": "/quizzes",
-            "4) AI Learning Path": "/ai-learning-path"
+            "4) AI Learning Path": "/ai-learning-path",
+            "5) AI Translator": "/ai-translator"
           };
           const rowHref = isCoreMaterial ? coreLinks[label] : panel.tone === "orange" ? "/assignments" : panel.tone === "purple" ? "/assessments" : "#";
 
