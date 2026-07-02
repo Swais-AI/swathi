@@ -60,6 +60,11 @@ class LearningProfileInput(BaseModel):
     comprehension_score: int = Field(..., ge=0, le=100)
 
 
+class QuizGenerationInput(BaseModel):
+    chapter_id: int = Field(..., ge=1)
+    question_count: int = Field(default=5, ge=3, le=10)
+
+
 class TextTranslationBatchInput(BaseModel):
     texts: list[str] = Field(..., min_length=1, max_length=80)
     target_language: str = Field(..., min_length=2, max_length=80)
