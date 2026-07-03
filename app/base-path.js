@@ -1,4 +1,4 @@
-const APP_BASE_PATH = "/student";
+const APP_BASE_PATH = (process.env.NEXT_PUBLIC_BASE_PATH || "").replace(/\/+$/, "");
 
 export function withBasePath(path) {
   if (!APP_BASE_PATH || /^https?:\/\//i.test(path)) {
