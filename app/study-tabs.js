@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { withoutBasePath } from "./base-path";
+import { withBasePath, withoutBasePath } from "./base-path";
 
 const studyTabs = [
   {
@@ -94,9 +93,9 @@ export default function StudyTabs() {
           <div className="accent-line" />
           <div className="panel-body">
             {tab.rows.map(([label, href]) => (
-              <Link className="study-row" href={href} key={label}>
+              <a className="study-row" href={withBasePath(href)} key={label}>
                 <span>{label}</span>
-              </Link>
+              </a>
             ))}
           </div>
         </article>

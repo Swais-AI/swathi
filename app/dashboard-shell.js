@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { withBasePath, withoutBasePath } from "./base-path";
 import LanguagePageTranslator from "./language-page-translator";
@@ -109,10 +108,10 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list" aria-label="Student navigation">
           {navItems.map(([icon, label, href]) => (
-            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={withBasePath(href)} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
-            </Link>
+            </a>
           ))}
         </nav>
 
@@ -120,10 +119,10 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list compact" aria-label="Settings navigation">
           {settingsItems.map(([icon, label, href]) => (
-            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={withBasePath(href)} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
-            </Link>
+            </a>
           ))}
         </nav>
 
