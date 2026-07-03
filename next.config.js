@@ -1,3 +1,1 @@
-module.exports = {
-  basePath: "/student",
-};
+module.exports = {};
