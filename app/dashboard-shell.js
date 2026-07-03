@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { withBasePath, withoutBasePath } from "./base-path";
 import LanguagePageTranslator from "./language-page-translator";
 import NotificationBell from "./notification-bell";
 import VoiceTextTools from "./voice-text-tools";
@@ -59,7 +61,7 @@ function Icon({ name, className = "" }) {
 }
 
 function BrandMark() {
-  return <img className="brand-logo" src="/sgslogo.jpeg" alt="SGS Senior Secondary School logo" />;
+  return <img className="brand-logo" src={withBasePath("/sgslogo.jpeg")} alt="SGS Senior Secondary School logo" />;
 }
 
 function Avatar() {
@@ -83,14 +85,15 @@ function Avatar() {
 
 export default function DashboardShell({ children }) {
   const pathname = usePathname();
+  const currentPath = withoutBasePath(pathname);
   const { language, languageOptions, setLanguage } = useLanguage();
 
   function isActive(href) {
     if (href === "/") {
-      return pathname === "/";
+      return currentPath === "/";
     }
 
-    return pathname === href || pathname.startsWith(`${href}/`);
+    return currentPath === href || currentPath.startsWith(`${href}/`);
   }
 
   return (
@@ -106,10 +109,10 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list" aria-label="Student navigation">
           {navItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
-            </a>
+            </Link>
           ))}
         </nav>
 
@@ -117,10 +120,10 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list compact" aria-label="Settings navigation">
           {settingsItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
-            </a>
+            </Link>
           ))}
         </nav>
 
