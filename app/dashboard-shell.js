@@ -7,17 +7,17 @@ import VoiceTextTools from "./voice-text-tools";
 import { useLanguage } from "./i18n";
 
 const navItems = [
-  ["home", "Dashboard", "/"],
-  ["book-open", "Core Study", "/chapters"],
-  ["clipboard", "Assignments", "/assignments"],
-  ["target", "Assessments", "/assessments"],
-  ["chart", "My Progress", "/progress"],
-  ["document", "AI Translator", "/ai-translator"]
+  ["home", "Dashboard", "/student"],
+  ["book-open", "Core Study","/student/chapters"],
+  ["clipboard", "Assignments","/student /assignments"],
+  ["target", "Assessments","/student/assessments"],
+  ["chart", "My Progress", "/student/progress"],
+  ["document", "AI Translator","/student/ai-translator"]
 ];
 
 const settingsItems = [
-  ["settings", "Settings", "/settings"],
-  ["help", "Help & Support", "/help"]
+  ["settings", "Settings","/student/settings"],
+  ["help", "Help & Support","/student/help"]
 ];
 
 const loginServiceUrl = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
@@ -86,8 +86,8 @@ export default function DashboardShell({ children }) {
   const { language, languageOptions, setLanguage } = useLanguage();
 
   function isActive(href) {
-    if (href === "/") {
-      return pathname === "/";
+    if (href === "/student") {
+      return pathname === "/" || pathname === "/student";
     }
 
     return pathname === href || pathname.startsWith(`${href}/`);
