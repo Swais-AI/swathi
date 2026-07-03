@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useLanguage } from "./i18n";
+import { withBasePath, withoutBasePath } from "./base-path";
 import NotificationBell from "./notification-bell";
 import StudentProfile from "./student-profile";
 
@@ -61,22 +62,23 @@ function Avatar() {
 
 export default function DashboardShell({ children }) {
   const pathname = usePathname();
+  const currentPath = withoutBasePath(pathname);
   const router = useRouter();
   const { language, languageOptions, setLanguage, t } = useLanguage();
 
   function isActive(href) {
     if (href === "/") {
-      return pathname === "/";
+      return currentPath === "/";
     }
 
-    return pathname === href || pathname.startsWith(`${href}/`);
+    return currentPath === href || currentPath.startsWith(`${href}/`);
   }
 
   function handleLogout(event) {
     event.preventDefault();
     window.localStorage.removeItem("swais-auth-token");
     window.sessionStorage.clear();
-    router.push("/login");
+    router.push(withBasePath("/login"));
   }
 
   return (
@@ -92,7 +94,7 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list" aria-label="Student navigation">
           {navItems.map(([icon, labelKey, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={labelKey}>
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={withBasePath(href)} key={labelKey}>
               <Icon name={icon} />
               <span>{t(labelKey)}</span>
             </a>
@@ -103,7 +105,7 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list compact" aria-label="Settings navigation">
           {settingsItems.map(([icon, labelKey, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={labelKey}>
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={withBasePath(href)} key={labelKey}>
               <Icon name={icon} />
               <span>{t(labelKey)}</span>
             </a>
@@ -112,7 +114,7 @@ export default function DashboardShell({ children }) {
 
         <div className="nav-divider" />
 
-        <a className="nav-item logout-link" href="/login" onClick={handleLogout}>
+        <a className="nav-item logout-link" href={withBasePath("/login")} onClick={handleLogout}>
           <Icon name="power" />
           <span>{t("logout")}</span>
         </a>

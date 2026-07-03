@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
+import { withBasePath, withoutBasePath } from "./base-path";
 import { useLanguage } from "./i18n";
 
 const studyTabs = [
@@ -76,8 +77,9 @@ function PanelIcon({ name }) {
 
 export default function StudyTabs() {
   const pathname = usePathname();
+  const currentPath = withoutBasePath(pathname);
   const { t } = useLanguage();
-  const activeIndex = studyTabs.findIndex((tab) => tab.rows.some(([, href]) => pathname === href || pathname.startsWith(`${href}/`)));
+  const activeIndex = studyTabs.findIndex((tab) => tab.rows.some(([, href]) => currentPath === href || currentPath.startsWith(`${href}/`)));
   const [openPanel, setOpenPanel] = useState(activeIndex >= 0 ? activeIndex : null);
 
   return (
@@ -92,7 +94,7 @@ export default function StudyTabs() {
           <div className="accent-line" />
           <div className="panel-body">
             {tab.rows.map(([labelKey, href]) => (
-              <a className="study-row" href={href} key={labelKey}>
+              <a className="study-row" href={withBasePath(href)} key={labelKey}>
                 <span>{t(labelKey)}</span>
               </a>
             ))}
