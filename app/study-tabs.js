@@ -3,43 +3,42 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { withBasePath, withoutBasePath } from "./base-path";
-import { useLanguage } from "./i18n";
 
 const studyTabs = [
   {
     tone: "green",
     icon: "book-open",
-    titleKey: "studyA",
+    title: "Study A: Core Material",
     href: "/chapters",
     rows: [
-      ["chapters", "/chapters"],
-      ["studyMaterial", "/study-material"],
-      ["quizzes", "/quizzes"],
-      ["aiLearningPath", "/ai-learning-path"]
+      ["1) Chapters", "/chapters"],
+      ["2) Study Material", "/study-material"],
+      ["3) Quizzes", "/quizzes"],
+      ["4) AI Learning Path", "/ai-learning-path"]
     ]
   },
   {
     tone: "orange",
     icon: "clipboard",
-    titleKey: "studyB",
+    title: "Study B: Assignment",
     href: "/assignments",
     rows: [
-      ["myAssignmentsMenu", "/assignments"],
-      ["submitAssignmentMenu", "/assignments?view=submit"],
-      ["feedbackMarksMenu", "/assignments?view=feedback"]
+      ["1) My Assignments", "/assignments"],
+      ["2) Submit Assignment", "/assignments"],
+      ["3) Feedback & Marks", "/assignments"]
     ]
   },
   {
     tone: "purple",
     icon: "target",
-    titleKey: "studyC",
+    title: "Study C: Assessment",
     href: "/assessments",
     rows: [
-      ["unitTest", "/assessments"],
-      ["mockTest", "/assessments"],
-      ["feedbackMarksMenu", "/assessments"],
-      ["studentAnalysis", "/assessments"],
-      ["teacherRemark", "/assessments"]
+      ["1) Unit Test", "/assessments"],
+      ["2) Mock Test", "/assessments"],
+      ["3) Feedback & Marks", "/assessments"],
+      ["4) Student Analysis", "/assessments"],
+      ["5) Teacher Remark", "/assessments"]
     ]
   }
 ];
@@ -78,24 +77,23 @@ function PanelIcon({ name }) {
 export default function StudyTabs() {
   const pathname = usePathname();
   const currentPath = withoutBasePath(pathname);
-  const { t } = useLanguage();
   const activeIndex = studyTabs.findIndex((tab) => tab.rows.some(([, href]) => currentPath === href || currentPath.startsWith(`${href}/`)));
   const [openPanel, setOpenPanel] = useState(activeIndex >= 0 ? activeIndex : null);
 
   return (
     <section className="content-grid study-tab-strip" aria-label="Study modules">
       {studyTabs.map((tab, index) => (
-        <article className={`study-panel ${tab.tone} ${openPanel === index ? "" : "collapsed"} ${activeIndex === index ? "active-tab" : ""}`} key={tab.titleKey}>
+        <article className={`study-panel ${tab.tone} ${openPanel === index ? "" : "collapsed"} ${activeIndex === index ? "active-tab" : ""}`} key={tab.title}>
           <button className="panel-head" type="button" aria-expanded={openPanel === index} onClick={() => setOpenPanel((current) => (current === index ? null : index))}>
             <PanelIcon name={tab.icon} />
-            <span className="panel-title">{t(tab.titleKey)}</span>
+            <span className="panel-title">{tab.title}</span>
             <span className="chevron" aria-hidden="true" />
           </button>
           <div className="accent-line" />
           <div className="panel-body">
-            {tab.rows.map(([labelKey, href]) => (
-              <a className="study-row" href={withBasePath(href)} key={labelKey}>
-                <span>{t(labelKey)}</span>
+            {tab.rows.map(([label, href]) => (
+              <a className="study-row" href={withBasePath(href)} key={label}>
+                <span>{label}</span>
               </a>
             ))}
           </div>

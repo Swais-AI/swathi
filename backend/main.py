@@ -1,10 +1,6 @@
-import os
-import base64
-import binascii
-import io
 import json
+import os
 import re
-import wave
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -13,13 +9,13 @@ from urllib.request import Request, urlopen
 
 import psycopg
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from backend.ai_learning_path_service import MockLearningPathLLM, classify_reader, get_learning_path_generator
+from ai_learning_path_service import classify_reader, get_learning_path_generator
 
 
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
@@ -39,13 +35,9 @@ def get_cors_origins() -> list[str]:
     return [
         "http://localhost:3000",
         "http://localhost:3001",
-        "http://localhost:3002",
-        "http://localhost:3003",
         "http://localhost:3004",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
-        "http://127.0.0.1:3002",
-        "http://127.0.0.1:3003",
         "http://127.0.0.1:3004",
     ]
 
@@ -69,17 +61,6 @@ class LearningProfileInput(BaseModel):
     comprehension_score: int = Field(..., ge=0, le=100)
 
 
-class AssignmentSubmissionInput(BaseModel):
-    student_id: int = Field(..., ge=1)
-    assignment_id: int = Field(..., ge=1)
-    assignment_title: str = Field(..., min_length=1, max_length=180)
-    typed_answer: str | None = Field(default=None, max_length=20000)
-    file_name: str | None = Field(default=None, max_length=255)
-    file_type: str | None = Field(default=None, max_length=120)
-    file_size: int | None = Field(default=None, ge=0, le=10 * 1024 * 1024)
-    file_content_base64: str | None = None
-
-
 class QuizGenerationInput(BaseModel):
     chapter_id: int = Field(..., ge=1)
     question_count: int = Field(default=5, ge=3, le=10)
@@ -89,23 +70,6 @@ class TextTranslationInput(BaseModel):
     text: str = Field(..., min_length=1, max_length=12000)
     target_language: str = Field(..., min_length=2, max_length=80)
     source_language: str | None = Field(default=None, max_length=80)
-
-
-class TextTranslationBatchInput(BaseModel):
-    texts: list[str] = Field(..., min_length=1, max_length=80)
-    target_language: str = Field(..., min_length=2, max_length=80)
-    source_language: str | None = Field(default=None, max_length=80)
-
-
-class TextToSpeechInput(BaseModel):
-    text: str = Field(..., min_length=1, max_length=12000)
-    language: str = Field(..., min_length=2, max_length=80)
-
-
-class SpeechToTextInput(BaseModel):
-    audio_base64: str = Field(..., min_length=1)
-    mime_type: str = Field(..., min_length=3, max_length=120)
-    language: str = Field(default="English", min_length=2, max_length=80)
 
 
 class LearningContentGenerationInput(BaseModel):
@@ -151,468 +115,6 @@ def database_health_check():
     return {"status": "ok", "database": "connected"}
 
 
-@app.get("/students/current")
-def get_current_student():
-    query = """
-        SELECT
-            student.student_id,
-            student.full_name,
-            student.roll_no,
-            student.admission_no,
-            COALESCE(class.class_name, student.class_id::text) AS class_name,
-            COALESCE(student.section, class.section_name) AS section
-        FROM sgs_student_master student
-        LEFT JOIN sgs_class_master class
-          ON class.class_id = student.class_id
-        WHERE COALESCE(student.record_status, 'Active') = 'Active'
-          AND COALESCE(student.is_active, true) = true
-        ORDER BY
-            CASE WHEN student.admission_no IS NULL THEN 1 ELSE 0 END,
-            student.student_id
-        LIMIT 1;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query)
-                student = cursor.fetchone()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Student master table is missing. Create sgs_student_master in PostgreSQL.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Unable to fetch student details.",
-        ) from error
-
-    if student is None:
-        raise HTTPException(status_code=404, detail="No active student found.")
-
-    return {"student": student}
-
-
-def decode_submission_file(submission: AssignmentSubmissionInput) -> bytes | None:
-    if not submission.file_content_base64:
-        return None
-
-    try:
-        file_content = base64.b64decode(submission.file_content_base64, validate=True)
-    except (binascii.Error, ValueError) as error:
-        raise HTTPException(status_code=400, detail="Uploaded file content is invalid.") from error
-
-    if len(file_content) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Uploaded file must be 10 MB or smaller.")
-
-    return file_content
-
-
-@app.post("/assignment-submissions")
-def submit_assignment(submission: AssignmentSubmissionInput):
-    typed_answer = (submission.typed_answer or "").strip()
-    file_content = decode_submission_file(submission)
-
-    if not typed_answer and file_content is None:
-        raise HTTPException(status_code=400, detail="Type an answer or upload a file before submitting.")
-
-    if file_content is not None and not submission.file_name:
-        raise HTTPException(status_code=400, detail="Uploaded file name is required.")
-
-    query = """
-        INSERT INTO sgs_assignment_submissions (
-            student_id,
-            assignment_id,
-            assignment_title,
-            typed_answer,
-            file_name,
-            file_type,
-            file_size,
-            file_content,
-            status
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Submitted')
-        RETURNING
-            id,
-            student_id,
-            assignment_id,
-            assignment_title,
-            typed_answer,
-            file_name,
-            file_type,
-            file_size,
-            status,
-            submitted_at;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    query,
-                    (
-                        submission.student_id,
-                        submission.assignment_id,
-                        submission.assignment_title,
-                        typed_answer or None,
-                        submission.file_name,
-                        submission.file_type,
-                        len(file_content) if file_content is not None else None,
-                        file_content,
-                    ),
-                )
-                saved_submission = cursor.fetchone()
-                connection.commit()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Assignment submission table is missing. Create sgs_assignment_submissions in PostgreSQL.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to save assignment submission.") from error
-
-    return {"submission": saved_submission}
-
-
-@app.get("/assignment-submissions")
-def get_assignment_submissions(
-    student_id: int = Query(..., ge=1),
-    assignment_id: int | None = Query(default=None, ge=1),
-):
-    filters = ["student_id = %s"]
-    params: list[int] = [student_id]
-
-    if assignment_id is not None:
-        filters.append("assignment_id = %s")
-        params.append(assignment_id)
-
-    query = f"""
-        SELECT
-            id,
-            student_id,
-            assignment_id,
-            assignment_title,
-            typed_answer,
-            file_name,
-            file_type,
-            file_size,
-            status,
-            submitted_at
-        FROM sgs_assignment_submissions
-        WHERE {' AND '.join(filters)}
-        ORDER BY submitted_at DESC
-        LIMIT 20;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, params)
-                submissions = cursor.fetchall()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Assignment submission table is missing. Create sgs_assignment_submissions in PostgreSQL.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch assignment submissions.") from error
-
-    return {"submissions": submissions}
-
-
-@app.get("/assignments")
-def get_assignments(student_id: int | None = None):
-    submission_join = ""
-    submission_status_select = "NULL::text AS submission_status, NULL::timestamptz AS submitted_at"
-    params: list[int] = []
-
-    if student_id is not None:
-        submission_join = """
-            LEFT JOIN LATERAL (
-                SELECT status, submitted_at
-                FROM sgs_assignment_submissions submission
-                WHERE submission.assignment_id = assignment.assignment_id
-                  AND submission.student_id = %s
-                ORDER BY submitted_at DESC
-                LIMIT 1
-            ) latest_submission ON true
-        """
-        submission_status_select = "latest_submission.status AS submission_status, latest_submission.submitted_at"
-        params.append(student_id)
-
-    query = f"""
-        SELECT
-            assignment.assignment_id,
-            assignment.chapter_id,
-            assignment.assignment_title,
-            assignment.assignment_text,
-            assignment.due_date,
-            COALESCE(assignment.record_status, 'Active') AS record_status,
-            {submission_status_select}
-        FROM sgs_assignment_master assignment
-        {submission_join}
-        WHERE COALESCE(assignment.record_status, 'Active') = 'Active'
-        ORDER BY
-            CASE WHEN assignment.due_date IS NULL THEN 1 ELSE 0 END,
-            assignment.due_date,
-            assignment.assignment_id;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, params)
-                assignments = cursor.fetchall()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Assignment master table is missing. Create sgs_assignment_master in PostgreSQL.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch assignments.") from error
-
-    return {"assignments": assignments}
-
-
-@app.get("/assignment-feedback")
-def get_assignment_feedback(student_id: int | None = Query(default=None, ge=1)):
-    filters = ["COALESCE(submission.record_status, 'Active') = 'Active'"]
-    params: list[int] = []
-
-    if student_id is not None:
-        filters.append("submission.student_id = %s")
-        params.append(student_id)
-
-    query = f"""
-        SELECT
-            submission.submission_id,
-            submission.assignment_id,
-            submission.student_id,
-            COALESCE(assignment.assignment_title, 'Assignment') AS assignment_title,
-            submission.submission_text,
-            submission.file_path,
-            submission.marks_obtained,
-            submission.teacher_remarks,
-            submission.submitted_at,
-            COALESCE(submission.record_status, 'Active') AS record_status
-        FROM sgs_student_submission submission
-        LEFT JOIN sgs_assignment_master assignment
-          ON assignment.assignment_id = submission.assignment_id
-        WHERE {' AND '.join(filters)}
-        ORDER BY
-            CASE WHEN submission.submitted_at IS NULL THEN 1 ELSE 0 END,
-            submission.submitted_at DESC,
-            submission.submission_id DESC;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, params)
-                feedback = cursor.fetchall()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Student submission table is missing. Create sgs_student_submission in PostgreSQL.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch assignment feedback.") from error
-
-    return {"feedback": feedback}
-
-
-@app.get("/assessment-feedback")
-def get_assessment_feedback(student_id: int | None = Query(default=None, ge=1)):
-    filters = ["COALESCE(response.record_status, 'Active') = 'Active'"]
-    params: list[int] = []
-
-    if student_id is not None:
-        filters.append("response.student_id = %s")
-        params.append(student_id)
-
-    query = f"""
-        SELECT
-            response.response_id,
-            response.quiz_id,
-            response.student_id,
-            COALESCE(quiz.quiz_title, 'Assessment') AS assessment_title,
-            COALESCE(quiz.total_marks, 100) AS total_marks,
-            response.score,
-            COALESCE(response.completed_flag, false) AS completed_flag,
-            response.created_datetime
-        FROM sgs_quiz_response response
-        LEFT JOIN sgs_quiz_master quiz
-          ON quiz.quiz_id = response.quiz_id
-        WHERE {' AND '.join(filters)}
-          AND COALESCE(quiz.record_status, 'Active') = 'Active'
-        ORDER BY response.created_datetime DESC NULLS LAST, response.response_id DESC;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, params)
-                feedback = cursor.fetchall()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Assessment tables are missing. Confirm sgs_quiz_master and sgs_quiz_response exist.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch assessment feedback.") from error
-
-    return {"feedback": feedback}
-
-
-@app.get("/student-analysis")
-def get_student_analysis(student_id: int | None = Query(default=None, ge=1)):
-    filters = ["COALESCE(response.record_status, 'Active') = 'Active'"]
-    params: list[int] = []
-
-    if student_id is not None:
-        filters.append("response.student_id = %s")
-        params.append(student_id)
-
-    where_clause = " AND ".join(filters)
-    rows_query = f"""
-        SELECT
-            response.response_id,
-            response.quiz_id,
-            COALESCE(quiz.quiz_title, 'Assessment') AS assessment_title,
-            COALESCE(quiz.total_marks, 100) AS total_marks,
-            response.score,
-            COALESCE(response.completed_flag, false) AS completed_flag,
-            response.created_datetime
-        FROM sgs_quiz_response response
-        LEFT JOIN sgs_quiz_master quiz
-          ON quiz.quiz_id = response.quiz_id
-        WHERE {where_clause}
-          AND COALESCE(quiz.record_status, 'Active') = 'Active'
-        ORDER BY response.created_datetime NULLS LAST, response.response_id;
-    """
-    summary_query = f"""
-        SELECT
-            COUNT(*) AS assessment_count,
-            COALESCE(ROUND(AVG((response.score / NULLIF(COALESCE(quiz.total_marks, 100), 0)) * 100), 2), 0) AS average_percent,
-            COALESCE(MAX((response.score / NULLIF(COALESCE(quiz.total_marks, 100), 0)) * 100), 0) AS best_percent,
-            COALESCE(MIN((response.score / NULLIF(COALESCE(quiz.total_marks, 100), 0)) * 100), 0) AS lowest_percent
-        FROM sgs_quiz_response response
-        LEFT JOIN sgs_quiz_master quiz
-          ON quiz.quiz_id = response.quiz_id
-        WHERE {where_clause}
-          AND COALESCE(quiz.record_status, 'Active') = 'Active';
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(rows_query, params)
-                assessments = cursor.fetchall()
-                cursor.execute(summary_query, params)
-                summary = cursor.fetchone()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Assessment tables are missing. Confirm sgs_quiz_master and sgs_quiz_response exist.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch student analysis.") from error
-
-    return {"summary": summary, "assessments": assessments}
-
-
-@app.get("/teacher-remarks")
-def get_teacher_remarks(student_id: int | None = Query(default=None, ge=1)):
-    filters = ["COALESCE(submission.record_status, 'Active') = 'Active'"]
-    params: list[int] = []
-
-    if student_id is not None:
-        filters.append("submission.student_id = %s")
-        params.append(student_id)
-
-    query = f"""
-        SELECT
-            submission.submission_id,
-            submission.assignment_id,
-            COALESCE(assignment.assignment_title, 'Assignment') AS item_title,
-            submission.marks_obtained,
-            submission.teacher_remarks,
-            submission.submitted_at,
-            teacher.full_name AS teacher_name
-        FROM sgs_student_submission submission
-        LEFT JOIN sgs_assignment_master assignment
-          ON assignment.assignment_id = submission.assignment_id
-        LEFT JOIN sgs_teacher_master teacher
-          ON teacher.is_active = true
-        WHERE {' AND '.join(filters)}
-          AND NULLIF(BTRIM(COALESCE(submission.teacher_remarks, '')), '') IS NOT NULL
-        ORDER BY submission.submitted_at DESC NULLS LAST, submission.submission_id DESC;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, params)
-                remarks = cursor.fetchall()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Teacher remark tables are missing. Confirm sgs_student_submission and sgs_teacher_master exist.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch teacher remarks.") from error
-
-    return {"remarks": remarks}
-
-
-@app.get("/notices")
-def get_notices(
-    student_class: str | None = Query(default=None, min_length=1),
-):
-    filters = ["COALESCE(record_status, 'Active') = 'Active'"]
-    params: list[str] = []
-
-    if student_class is not None:
-        filters.append(
-            "(applicable_class IS NULL OR BTRIM(applicable_class) = '' OR LOWER(applicable_class) IN ('all', LOWER(%s)))"
-        )
-        params.append(student_class.strip())
-
-    query = f"""
-        SELECT
-            notice_id,
-            notice_title,
-            notice_text,
-            notice_date,
-            applicable_class,
-            posted_by,
-            created_datetime
-        FROM sgs_notice_board
-        WHERE {' AND '.join(filters)}
-        ORDER BY
-            notice_date DESC NULLS LAST,
-            created_datetime DESC NULLS LAST,
-            notice_id DESC
-        LIMIT 10;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, params)
-                notices = cursor.fetchall()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Notice board table is missing. Confirm sgs_notice_board exists.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch notices.") from error
-
-    return {"notices": notices}
-
-
 def build_learning_profile_payload(profile: LearningProfileInput):
     classification = classify_reader(
         profile.reading_time_minutes,
@@ -633,37 +135,9 @@ def build_learning_profile_payload(profile: LearningProfileInput):
             metrics,
         )
     except RuntimeError as error:
-        path = MockLearningPathLLM().generate_path(
-            profile.chapter_title,
-            classification,
-            metrics,
-        )
-        path["provider_error"] = str(error)
+        raise HTTPException(status_code=502, detail=str(error)) from error
 
     return classification, path
-
-
-def extract_json_object(content: str) -> dict:
-    cleaned = content.strip()
-
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`").strip()
-        if cleaned.lower().startswith("json"):
-            cleaned = cleaned[4:].strip()
-
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError:
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            raise
-        parsed = json.loads(cleaned[start : end + 1])
-
-    if not isinstance(parsed, dict):
-        raise ValueError("Expected a JSON object.")
-
-    return parsed
 
 
 def gemini_generate_json(prompt: str, max_output_tokens: int = 4096) -> dict:
@@ -675,238 +149,60 @@ def gemini_generate_json(prompt: str, max_output_tokens: int = 4096) -> dict:
     primary_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     fallback_models = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-2.0-flash,gemini-2.0-flash-lite")
     model_names = []
-
     for model_name in [primary_model, *fallback_models.split(",")]:
-        cleaned_model = model_name.strip()
-        if cleaned_model and cleaned_model not in model_names:
-            model_names.append(cleaned_model)
+        cleaned_name = model_name.strip()
+        if cleaned_name and cleaned_name not in model_names:
+            model_names.append(cleaned_name)
 
     payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": prompt}],
-            }
-        ],
+        "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "responseMimeType": "application/json",
-            "temperature": 0.35,
+            "temperature": 0.3,
             "maxOutputTokens": max_output_tokens,
+            "responseMimeType": "application/json",
         },
     }
+    request_body = json.dumps(payload).encode("utf-8")
+    last_error = None
 
-    errors = []
     for model_name in model_names:
         model = quote(model_name, safe="")
+        url = f"{base_url}/v1beta/models/{model}:generateContent?key={api_key}"
         request = Request(
-            f"{base_url}/v1beta/models/{model}:generateContent?key={api_key}",
-            data=json.dumps(payload).encode("utf-8"),
+            url,
+            data=request_body,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
 
         try:
-            with urlopen(request, timeout=30) as response:
-                body = json.loads(response.read().decode("utf-8"))
+            with urlopen(request, timeout=45) as response:
+                response_data = json.loads(response.read().decode("utf-8"))
         except HTTPError as error:
-            try:
-                error_body = json.loads(error.read().decode("utf-8"))
-                message = error_body.get("error", {}).get("message")
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                message = None
-            errors.append(f"{model_name}: {message or f'Gemini API error {error.code}.'}")
-            continue
-        except URLError as error:
-            errors.append(f"{model_name}: Gemini connection failed: {error.reason}")
-            continue
+            error_body = error.read().decode("utf-8", errors="replace")
+            last_error = f"Gemini request failed for {model_name}: {error.code} {error_body}"
+            if error.code in {400, 401, 403, 404}:
+                continue
+            raise RuntimeError(last_error) from error
+        except (URLError, TimeoutError, json.JSONDecodeError) as error:
+            raise RuntimeError(f"Gemini request failed: {error}") from error
 
         try:
-            parts = body["candidates"][0]["content"]["parts"]
-            content = "\n".join(part.get("text", "") for part in parts).strip()
-            return extract_json_object(content)
-        except (KeyError, IndexError, json.JSONDecodeError, ValueError) as error:
-            errors.append(f"{model_name}: Gemini returned an invalid JSON response.")
-            continue
+            text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError, TypeError) as error:
+            raise RuntimeError("Gemini returned an unexpected response.") from error
 
-    raise RuntimeError("Gemini quiz generation failed. " + " | ".join(errors))
+        cleaned_text = text.strip()
+        if cleaned_text.startswith("```"):
+            cleaned_text = re.sub(r"^```(?:json)?\s*", "", cleaned_text)
+            cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
 
-
-def find_inline_audio_part(value):
-    if isinstance(value, dict):
-        inline_data = value.get("inlineData") or value.get("inline_data")
-        if isinstance(inline_data, dict):
-            data = inline_data.get("data")
-            mime_type = inline_data.get("mimeType") or inline_data.get("mime_type") or "audio/wav"
-            if data:
-                return data, mime_type
-
-        for child in value.values():
-            found = find_inline_audio_part(child)
-            if found:
-                return found
-
-    if isinstance(value, list):
-        for child in value:
-            found = find_inline_audio_part(child)
-            if found:
-                return found
-
-    return None
-
-
-def gemini_generate_audio(text: str, language: str) -> tuple[bytes, str]:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not configured.")
-
-    base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").rstrip("/")
-    model_name = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
-    voice_name = os.getenv("GEMINI_TTS_VOICE", "Kore")
-    model = quote(model_name.strip(), safe="")
-    cleaned_text = text.strip()[:12000]
-
-    prompt = f"""
-        Read the following {language} study content aloud for a school student.
-        Use clear pronunciation and a natural classroom teaching tone.
-        Return audio only.
-
-        Text:
-        {cleaned_text}
-    """
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": prompt}],
-            }
-        ],
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {
-                    "prebuiltVoiceConfig": {
-                        "voiceName": voice_name,
-                    }
-                }
-            },
-        },
-    }
-    request = Request(
-        f"{base_url}/v1beta/models/{model}:generateContent?key={api_key}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urlopen(request, timeout=45) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
         try:
-            error_body = json.loads(error.read().decode("utf-8"))
-            message = error_body.get("error", {}).get("message")
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            message = None
-        raise RuntimeError(message or f"Gemini TTS API error {error.code}.") from error
-    except URLError as error:
-        raise RuntimeError(f"Gemini TTS connection failed: {error.reason}") from error
+            return json.loads(cleaned_text)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("Gemini returned invalid JSON.") from error
 
-    audio_part = find_inline_audio_part(body)
-    if not audio_part:
-        raise RuntimeError("Gemini did not return audio data.")
-
-    audio_base64, mime_type = audio_part
-    try:
-        audio_bytes = base64.b64decode(audio_base64)
-    except (binascii.Error, ValueError) as error:
-        raise RuntimeError("Gemini returned invalid audio data.") from error
-
-    if "audio/l16" in mime_type.lower() or "audio/pcm" in mime_type.lower():
-      rate_match = re.search(r"rate=(\d+)", mime_type)
-      sample_rate = int(rate_match.group(1)) if rate_match else 24000
-      wav_buffer = io.BytesIO()
-      with wave.open(wav_buffer, "wb") as wav_file:
-          wav_file.setnchannels(1)
-          wav_file.setsampwidth(2)
-          wav_file.setframerate(sample_rate)
-          wav_file.writeframes(audio_bytes)
-      return wav_buffer.getvalue(), "audio/wav"
-
-    return audio_bytes, mime_type
-
-
-def gemini_transcribe_audio(audio_base64: str, mime_type: str, language: str) -> str:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not configured.")
-
-    try:
-        base64.b64decode(audio_base64, validate=True)
-    except (binascii.Error, ValueError) as error:
-        raise RuntimeError("Invalid audio data.") from error
-
-    base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").rstrip("/")
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-    model = quote(model_name.strip(), safe="")
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {
-                        "text": (
-                            f"Transcribe this {language} student voice input for a search box. "
-                            "Return only valid JSON in this exact shape: "
-                            "{\"transcript\":\"spoken words\"}. Do not add explanations."
-                        )
-                    },
-                    {
-                        "inlineData": {
-                            "mimeType": mime_type,
-                            "data": audio_base64,
-                        }
-                    },
-                ],
-            }
-        ],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "temperature": 0,
-            "maxOutputTokens": 512,
-        },
-    }
-    request = Request(
-        f"{base_url}/v1beta/models/{model}:generateContent?key={api_key}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urlopen(request, timeout=45) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        try:
-            error_body = json.loads(error.read().decode("utf-8"))
-            message = error_body.get("error", {}).get("message")
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            message = None
-        raise RuntimeError(message or f"Gemini speech-to-text API error {error.code}.") from error
-    except URLError as error:
-        raise RuntimeError(f"Gemini speech-to-text connection failed: {error.reason}") from error
-
-    try:
-        parts = body["candidates"][0]["content"]["parts"]
-        content = "\n".join(part.get("text", "") for part in parts).strip()
-        transcript_data = extract_json_object(content)
-    except (KeyError, IndexError, json.JSONDecodeError, ValueError) as error:
-        raise RuntimeError("Gemini returned an invalid transcript response.") from error
-
-    transcript = str(transcript_data.get("transcript") or "").strip()
-    if not transcript:
-        raise RuntimeError("Gemini returned an empty transcript.")
-
-    return transcript
+    raise RuntimeError(last_error or "Gemini request failed for all configured models.")
 
 
 def normalize_quiz_questions(raw_questions) -> list[dict]:
@@ -1011,7 +307,7 @@ def normalize_generated_learning_content(raw_content) -> dict:
     }
 
 
-def fetch_chapter_for_quiz(chapter_id: int) -> dict:
+def fetch_chapter_for_ai(chapter_id: int) -> dict:
     query = """
         SELECT
             content.chapter_id,
@@ -1046,215 +342,6 @@ def fetch_chapter_for_quiz(chapter_id: int) -> dict:
         raise HTTPException(status_code=404, detail="Chapter content not found.")
 
     return chapter
-
-
-@app.post("/ai/generate-quiz")
-def generate_ai_quiz(payload: QuizGenerationInput):
-    chapter = fetch_chapter_for_quiz(payload.chapter_id)
-    content = str(chapter["full_text_content"])[:18000]
-    prompt = f"""
-        You are an expert school teacher. Generate {payload.question_count} multiple-choice questions
-        from the chapter content below.
-
-        Return only valid JSON in this exact shape:
-        {{
-          "quiz": [
-            {{
-              "question": "Question text",
-              "options": ["Option A", "Option B", "Option C", "Option D"],
-              "answer": "Exact correct option text",
-              "explanation": "One short explanation"
-            }}
-          ]
-        }}
-
-        Rules:
-        - Use 4 options per question.
-        - Make only one option correct.
-        - Keep questions clear for a school student.
-        - Do not include markdown or extra text.
-
-        Chapter content:
-        {content}
-    """
-
-    try:
-        quiz_data = gemini_generate_json(prompt)
-        questions = normalize_quiz_questions(quiz_data.get("quiz"))
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-    except ValueError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-
-    return {
-        "chapter_id": chapter["chapter_id"],
-        "chapter_title": chapter["chapter_title"],
-        "quiz": questions[: payload.question_count],
-    }
-
-
-@app.post("/learning-content/generate")
-def generate_learning_content(payload: LearningContentGenerationInput):
-    chapter = fetch_chapter_for_quiz(payload.chapter_id)
-    chapter_content = str(chapter["full_text_content"])[:18000]
-    focus_area = payload.focus_area or "Help the student understand the selected lesson."
-    path_steps = [str(step).strip() for step in payload.steps if str(step).strip()][:6]
-    prompt = f"""
-        You are an expert school teacher. Create personalized reading content for this student.
-
-        Student reader type: {payload.classification}
-        Selected lesson: {chapter["chapter_title"]}
-        Learning path focus area: {focus_area}
-        Learning path steps: {json.dumps(path_steps, ensure_ascii=False)}
-
-        Adapt the content style:
-        - Fast Reader: concise notes, deeper thinking, challenge practice.
-        - Average Reader: balanced explanation, checkpoints, moderate practice.
-        - Slow Reader: simple words, smaller reading blocks, keyword help, easy recap.
-
-        Return only valid JSON in this exact shape:
-        {{
-          "simple_notes": ["5 to 8 personalized study notes"],
-          "key_terms": [
-            {{"term": "keyword", "meaning": "student-friendly meaning"}}
-          ],
-          "recap": ["3 to 6 quick recap points"],
-          "practice": [
-            {{"question": "practice question", "hint": "short hint"}}
-          ]
-        }}
-
-        Rules:
-        - Use only the selected lesson content below.
-        - Do not mention that content was generated by AI.
-        - Keep language suitable for a school student.
-        - Do not include markdown or extra text.
-
-        Selected lesson content:
-        {chapter_content}
-    """
-
-    try:
-        content_data = gemini_generate_json(prompt, max_output_tokens=4096)
-        generated_content = normalize_generated_learning_content(content_data)
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-    except ValueError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-
-    return {
-        "provider": "gemini",
-        "student_id": payload.student_id,
-        "chapter_id": chapter["chapter_id"],
-        "chapter_title": chapter["chapter_title"],
-        "classification": payload.classification,
-        "generated_content": generated_content,
-    }
-
-@app.post("/ai/translate-text")
-def translate_text(payload: TextTranslationInput):
-    source_language = payload.source_language or "auto-detect"
-    prompt = f"""
-        Translate the text into {payload.target_language}.
-        Source language: {source_language}.
-
-        Return only valid JSON in this exact shape:
-        {{
-          "translated_text": "translated text here"
-        }}
-
-        Preserve meaning, names, numbers, and school subject terms. Do not add explanations.
-
-        Text:
-        {payload.text}
-    """
-
-    try:
-        translation_data = gemini_generate_json(prompt, max_output_tokens=3072)
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-
-    translated_text = str(translation_data.get("translated_text") or "").strip()
-    if not translated_text:
-        raise HTTPException(status_code=502, detail="Gemini returned an empty translation.")
-
-    return {
-        "source_language": source_language,
-        "target_language": payload.target_language,
-        "translated_text": translated_text,
-    }
-
-
-@app.post("/ai/translate-batch")
-def translate_text_batch(payload: TextTranslationBatchInput):
-    source_language = payload.source_language or "auto-detect"
-    cleaned_texts = [str(text).strip()[:3000] for text in payload.texts if str(text).strip()]
-    if not cleaned_texts:
-        raise HTTPException(status_code=400, detail="No text provided for translation.")
-
-    prompt = f"""
-        Translate each item into {payload.target_language}.
-        Source language: {source_language}.
-
-        Return only valid JSON in this exact shape:
-        {{
-          "translations": ["translation for item 1", "translation for item 2"]
-        }}
-
-        Rules:
-        - Keep the same number and order of translations as the input list.
-        - Preserve numbers, names, and school subject terms.
-        - Do not add explanations.
-
-        Input list:
-        {json.dumps(cleaned_texts, ensure_ascii=False)}
-    """
-
-    try:
-        translation_data = gemini_generate_json(prompt, max_output_tokens=4096)
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-
-    translations = translation_data.get("translations")
-    if not isinstance(translations, list):
-        raise HTTPException(status_code=502, detail="Gemini returned an invalid translation list.")
-
-    normalized = [str(item).strip() for item in translations]
-    if len(normalized) != len(cleaned_texts):
-        raise HTTPException(status_code=502, detail="Gemini returned a mismatched translation list.")
-
-    return {
-        "source_language": source_language,
-        "target_language": payload.target_language,
-        "translations": normalized,
-    }
-
-
-@app.post("/ai/text-to-speech")
-def text_to_speech(payload: TextToSpeechInput):
-    try:
-        audio_bytes, mime_type = gemini_generate_audio(payload.text, payload.language)
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-
-    return Response(
-        content=audio_bytes,
-        media_type=mime_type,
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-@app.post("/ai/speech-to-text")
-def speech_to_text(payload: SpeechToTextInput):
-    try:
-        transcript = gemini_transcribe_audio(payload.audio_base64, payload.mime_type, payload.language)
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-
-    return {
-        "language": payload.language,
-        "transcript": transcript,
-    }
 
 
 @app.get("/chapter-content")
@@ -1314,143 +401,141 @@ def get_chapter_content(
     }
 
 
-def get_table_columns(cursor, table_name: str) -> set[str]:
-    cursor.execute(
-        """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = %s;
-        """,
-        (table_name,),
-    )
-    return {row["column_name"] for row in cursor.fetchall()}
+@app.post("/ai/generate-quiz")
+def generate_ai_quiz(payload: QuizGenerationInput):
+    chapter = fetch_chapter_for_ai(payload.chapter_id)
+    content = str(chapter["full_text_content"])[:18000]
+    prompt = f"""
+        You are an expert school teacher. Generate {payload.question_count} multiple-choice questions
+        from the chapter content below.
 
+        Return only valid JSON in this exact shape:
+        {{
+          "quiz": [
+            {{
+              "question": "Question text",
+              "options": ["Option A", "Option B", "Option C", "Option D"],
+              "answer": "Exact correct option text",
+              "explanation": "One short explanation"
+            }}
+          ]
+        }}
 
-def first_existing_column(columns: set[str], candidates: list[str]) -> str | None:
-    return next((column for column in candidates if column in columns), None)
+        Rules:
+        - Use 4 options per question.
+        - Make only one option correct.
+        - Keep questions clear for a school student.
+        - Do not include markdown or extra text.
 
-
-def build_file_metadata_join(cursor) -> tuple[str, str, str]:
-    file_table = None
-    file_columns: set[str] = set()
-
-    for table_name in ("sgs_file_storage_metadata", "sgs_file_repository"):
-        columns = get_table_columns(cursor, table_name)
-        if columns:
-            file_table = table_name
-            file_columns = columns
-            break
-
-    if file_table is None:
-        return "", "NULL::text AS file_name, NULL::text AS file_link", ""
-
-    entity_id_column = first_existing_column(file_columns, ["entity_id", "reference_id", "related_id", "chapter_content_id", "chapter_id"])
-    if entity_id_column is None:
-        return "", "NULL::text AS file_name, NULL::text AS file_link", ""
-
-    name_column = first_existing_column(file_columns, ["file_name", "original_file_name", "display_name", "filename", "name", "title"])
-    link_column = first_existing_column(file_columns, ["file_url", "file_path", "storage_path", "path", "url", "link"])
-    status_column = first_existing_column(file_columns, ["record_status", "status"])
-    active_column = first_existing_column(file_columns, ["is_active", "active"])
-    entity_type_column = first_existing_column(file_columns, ["entity_type", "reference_type", "module_name"])
-
-    join_conditions = [
-        f"file_meta.{entity_id_column} IN (content.chapter_content_id, content.chapter_id)"
-    ]
-
-    if entity_type_column is not None:
-        join_conditions.append(
-            f"(file_meta.{entity_type_column} IS NULL OR LOWER(file_meta.{entity_type_column}::text) IN ('chapter_content', 'study_material', 'chapter'))"
-        )
-    if status_column is not None:
-        join_conditions.append(f"COALESCE(file_meta.{status_column}, 'Active') = 'Active'")
-    if active_column is not None:
-        join_conditions.append(f"COALESCE(file_meta.{active_column}, true) = true")
-
-    select_name = f"file_meta.{name_column}::text" if name_column else "NULL::text"
-    select_link = f"file_meta.{link_column}::text" if link_column else "NULL::text"
-    join_sql = f"LEFT JOIN {file_table} file_meta ON {' AND '.join(join_conditions)}"
-
-    return join_sql, f"{select_name} AS file_name, {select_link} AS file_link", file_table
-
-
-@app.get("/study-materials")
-def get_study_materials(
-    student_class: str = Query(..., min_length=1),
-    subject: str = Query(..., min_length=1),
-    chapter: str = Query(..., min_length=1),
-):
-    query_params = {
-        "student_class": student_class.strip(),
-        "subject": subject.strip(),
-        "chapter": chapter.strip(),
-    }
+        Chapter content:
+        {content}
+    """
 
     try:
-        chapter_id = int(query_params["chapter"])
-    except ValueError:
-        chapter_id = None
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                file_join_sql, file_select_sql, file_source = build_file_metadata_join(cursor)
-                query = f"""
-                    SELECT
-                        content.chapter_content_id,
-                        content.chapter_id,
-                        COALESCE(NULLIF(BTRIM(content.content_format), ''), 'Text') AS content_type,
-                        COALESCE(NULLIF(BTRIM(content.content_title), ''), chapter.chapter_name, 'Study Material') AS title,
-                        COALESCE(NULLIF(BTRIM(chapter.chapter_description), ''), NULLIF(BTRIM(LEFT(content.full_text_content, 180)), '')) AS description,
-                        {file_select_sql}
-                    FROM sgs_chapter_content content
-                    LEFT JOIN sgs_chapter_master chapter
-                      ON chapter.chapter_id = content.chapter_id
-                    LEFT JOIN sgs_subject_master subject
-                      ON subject.subject_id = chapter.subject_id
-                    LEFT JOIN sgs_class_master class
-                      ON class.class_id = subject.class_id
-                    {file_join_sql}
-                    WHERE (
-                        LOWER(COALESCE(class.class_name, '')) = LOWER(%(student_class)s)
-                        OR class.class_id::text = %(student_class)s
-                        OR class.class_id IS NULL
-                    )
-                      AND (
-                        LOWER(COALESCE(subject.subject_name, '')) = LOWER(%(subject)s)
-                        OR subject.subject_id IS NULL
-                      )
-                      AND (
-                        content.chapter_id::text = %(chapter)s
-                        OR LOWER(COALESCE(chapter.chapter_name, content.content_title, '')) = LOWER(%(chapter)s)
-                        OR (%(chapter_id)s IS NOT NULL AND content.chapter_id = %(chapter_id)s)
-                      )
-                      AND COALESCE(content.is_active, true) = true
-                      AND COALESCE(content.record_status, 'Active') = 'Active'
-                      AND COALESCE(chapter.record_status, 'Active') = 'Active'
-                      AND COALESCE(subject.record_status, 'Active') = 'Active'
-                      AND COALESCE(class.record_status, 'Active') = 'Active'
-                    ORDER BY content.chapter_content_id;
-                """
-                cursor.execute(query, {**query_params, "chapter_id": chapter_id})
-                materials = cursor.fetchall()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Study material tables are missing. Confirm sgs_chapter_content and sgs_file_storage_metadata exist in PostgreSQL.",
-        ) from error
-    except psycopg.errors.UndefinedColumn as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Study material table columns do not match the expected schema.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch study material.") from error
+        quiz_data = gemini_generate_json(prompt)
+        questions = normalize_quiz_questions(quiz_data.get("quiz"))
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
 
     return {
-        "filters": query_params,
-        "file_source": file_source or None,
-        "materials": materials,
+        "chapter_id": chapter["chapter_id"],
+        "chapter_title": chapter["chapter_title"],
+        "quiz": questions[: payload.question_count],
+    }
+
+
+@app.post("/learning-content/generate")
+def generate_learning_content(payload: LearningContentGenerationInput):
+    chapter = fetch_chapter_for_ai(payload.chapter_id)
+    chapter_content = str(chapter["full_text_content"])[:18000]
+    focus_area = payload.focus_area or "Help the student understand the selected lesson."
+    path_steps = [str(step).strip() for step in payload.steps if str(step).strip()][:6]
+    prompt = f"""
+        You are an expert school teacher. Create personalized reading content for this student.
+
+        Student reader type: {payload.classification}
+        Selected lesson: {chapter["chapter_title"]}
+        Learning path focus area: {focus_area}
+        Learning path steps: {json.dumps(path_steps, ensure_ascii=False)}
+
+        Adapt the content style:
+        - Fast Reader: concise notes, deeper thinking, challenge practice.
+        - Average Reader: balanced explanation, checkpoints, moderate practice.
+        - Slow Reader: simple words, smaller reading blocks, keyword help, easy recap.
+
+        Return only valid JSON in this exact shape:
+        {{
+          "simple_notes": ["5 to 8 personalized study notes"],
+          "key_terms": [
+            {{"term": "keyword", "meaning": "student-friendly meaning"}}
+          ],
+          "recap": ["3 to 6 quick recap points"],
+          "practice": [
+            {{"question": "practice question", "hint": "short hint"}}
+          ]
+        }}
+
+        Rules:
+        - Use only the selected lesson content below.
+        - Do not mention that content was generated by AI.
+        - Keep language suitable for a school student.
+        - Do not include markdown or extra text.
+
+        Selected lesson content:
+        {chapter_content}
+    """
+
+    try:
+        content_data = gemini_generate_json(prompt, max_output_tokens=4096)
+        generated_content = normalize_generated_learning_content(content_data)
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return {
+        "provider": "gemini",
+        "student_id": payload.student_id,
+        "chapter_id": chapter["chapter_id"],
+        "chapter_title": chapter["chapter_title"],
+        "classification": payload.classification,
+        "generated_content": generated_content,
+    }
+
+
+@app.post("/ai/translate-text")
+def translate_text(payload: TextTranslationInput):
+    source_language = payload.source_language or "auto-detect"
+    prompt = f"""
+        Translate the text into {payload.target_language}.
+        Source language: {source_language}.
+
+        Return only valid JSON in this exact shape:
+        {{
+          "translated_text": "translated text here"
+        }}
+
+        Preserve meaning, names, numbers, and school subject terms. Do not add explanations.
+
+        Text:
+        {payload.text}
+    """
+
+    try:
+        translation_data = gemini_generate_json(prompt, max_output_tokens=3072)
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    translated_text = str(translation_data.get("translated_text") or "").strip()
+    if not translated_text:
+        raise HTTPException(status_code=502, detail="Gemini returned an empty translation.")
+
+    return {
+        "source_language": source_language,
+        "target_language": payload.target_language,
+        "translated_text": translated_text,
     }
 
 
