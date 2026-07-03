@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { withBasePath, withoutBasePath } from "./base-path";
 import NotificationBell from "./notification-bell";
 
 const navItems = [
@@ -59,13 +60,14 @@ function Avatar() {
 
 export default function DashboardShell({ children }) {
   const pathname = usePathname();
+  const currentPath = withoutBasePath(pathname);
 
   function isActive(href) {
     if (href === "/") {
-      return pathname === "/";
+      return currentPath === "/";
     }
 
-    return pathname === href || pathname.startsWith(`${href}/`);
+    return currentPath === href || currentPath.startsWith(`${href}/`);
   }
 
   return (
@@ -81,7 +83,7 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list" aria-label="Student navigation">
           {navItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={withBasePath(href)} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
             </a>
@@ -92,7 +94,7 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list compact" aria-label="Settings navigation">
           {settingsItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={withBasePath(href)} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
             </a>
