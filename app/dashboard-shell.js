@@ -9,17 +9,17 @@ import VoiceTextTools from "./voice-text-tools";
 import { useLanguage } from "./i18n";
 
 const navItems = [
-  ["home", "Dashboard", "/student"],
-  ["book-open", "Core Study","/student/chapters"],
-  ["clipboard", "Assignments","/student /assignments"],
-  ["target", "Assessments","/student/assessments"],
-  ["chart", "My Progress", "/student/progress"],
-  ["document", "AI Translator","/student/ai-translator"]
+  ["home", "Dashboard", "/"],
+  ["book-open", "Core Study", "/chapters"],
+  ["clipboard", "Assignments", "/assignments"],
+  ["target", "Assessments", "/assessments"],
+  ["chart", "My Progress", "/progress"],
+  ["document", "AI Translator", "/ai-translator"]
 ];
 
 const settingsItems = [
-  ["settings", "Settings","/student/settings"],
-  ["help", "Help & Support","/student/help"]
+  ["settings", "Settings", "/settings"],
+  ["help", "Help & Support", "/help"]
 ];
 
 const loginServiceUrl = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
@@ -91,8 +91,6 @@ export default function DashboardShell({ children }) {
   function isActive(href) {
     if (href === "/") {
       return currentPath === "/";
-    if (href === "/student") {
-      return pathname === "/" || pathname === "/student";
     }
 
     return currentPath === href || currentPath.startsWith(`${href}/`);
