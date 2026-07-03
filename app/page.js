@@ -4,6 +4,7 @@ import { useState } from "react";
 import LanguagePageTranslator from "./language-page-translator";
 import NotificationBell from "./notification-bell";
 import VoiceTextTools from "./voice-text-tools";
+import { withBasePath } from "./base-path";
 import { useLanguage } from "./i18n";
 
 const navItems = [
@@ -127,7 +128,7 @@ function PanelIcon({ name }) {
 }
 
 function BrandMark() {
-  return <img className="brand-logo" src="/sgslogo.jpeg" alt="SGS Senior Secondary School logo" />;
+  return <img className="brand-logo" src={withBasePath("/sgslogo.jpeg")} alt="SGS Senior Secondary School logo" />;
 }
 
 function Avatar() {
@@ -170,9 +171,10 @@ function StudyPanel({ panel, open, onToggle }) {
             "5) AI Translator": "/ai-translator"
           };
           const rowHref = isCoreMaterial ? coreLinks[label] : panel.tone === "orange" ? "/assignments" : panel.tone === "purple" ? "/assessments" : "#";
+          const rowUrl = rowHref === "#" ? rowHref : withBasePath(rowHref);
 
           return (
-            <a className="study-row" href={rowHref} key={label}>
+            <a className="study-row" href={rowUrl} key={label}>
               <span>{label}</span>
             </a>
           );
@@ -195,7 +197,7 @@ export default function DashboardPage() {
 
         <nav className="nav-list" aria-label="Student navigation">
           {navItems.map(([icon, label, href, active]) => (
-            <a className={`nav-item ${active ? "active" : ""}`} href={href} key={label}>
+            <a className={`nav-item ${active ? "active" : ""}`} href={withBasePath(href)} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
             </a>
@@ -206,7 +208,7 @@ export default function DashboardPage() {
 
         <nav className="nav-list compact" aria-label="Settings navigation">
           {settingsItems.map(([icon, label, href]) => (
-            <a className="nav-item" href={href} key={label}>
+            <a className="nav-item" href={withBasePath(href)} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
             </a>
