@@ -77,6 +77,42 @@ def classify_reader(
     return "Slow Reader"
 
 
+def classify_performance(
+    assignment_marks: int | float,
+    quiz_score: int | float,
+    unit_test_marks: int | float,
+    retry_count: int,
+) -> str:
+    """Classify the learner from overall academic performance metrics."""
+    score = 0
+
+    if assignment_marks >= 85:
+        score += 2
+    elif assignment_marks >= 60:
+        score += 1
+
+    if quiz_score >= 85:
+        score += 2
+    elif quiz_score >= 60:
+        score += 1
+
+    if unit_test_marks >= 85:
+        score += 2
+    elif unit_test_marks >= 60:
+        score += 1
+
+    if retry_count <= 1:
+        score += 1
+    elif retry_count >= 3:
+        score -= 1
+
+    if score >= 5:
+        return "Fast Reader"
+    if score >= 3:
+        return "Average Reader"
+    return "Slow Reader"
+
+
 class MockLearningPathLLM:
     """Deterministic fallback used only when no real AI provider is configured."""
 
@@ -332,6 +368,22 @@ def _list_or_default(value: Any, default: list[str]) -> list[str]:
 
 
 def _focus_area(metrics: dict[str, int]) -> str:
+    if "assignment_marks" in metrics or "unit_test_marks" in metrics:
+        assignment_marks = metrics.get("assignment_marks", 0)
+        quiz_score = metrics.get("quiz_score", 0)
+        unit_test_marks = metrics.get("unit_test_marks", 0)
+        retry_count = metrics.get("retry_count", 0)
+
+        if unit_test_marks < 60:
+            return "Strengthen core exam readiness with guided revision and frequent checkpoints."
+        if quiz_score < 60:
+            return "Improve quick recall and quiz accuracy through targeted practice."
+        if assignment_marks < 60:
+            return "Build consistency in assignment completion and concept application."
+        if retry_count >= 3:
+            return "Reduce repeated attempts with focused review before practice."
+        return "Maintain strong performance with challenge practice and periodic revision."
+
     if metrics["comprehension_score"] < 60:
         return "Build comprehension through smaller reading blocks and recap questions."
     if metrics["quiz_score"] < 60:

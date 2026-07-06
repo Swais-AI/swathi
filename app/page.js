@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getApiBaseUrl } from "./api-base-url";
 import LanguagePageTranslator from "./language-page-translator";
 import NotificationBell from "./notification-bell";
 import VoiceTextTools from "./voice-text-tools";
@@ -22,6 +23,7 @@ const settingsItems = [
 ];
 
 const loginServiceUrl = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
+const API_BASE_URL = getApiBaseUrl();
 const loginServiceSignOutUrl =
   process.env.NEXT_PUBLIC_LOGIN_SIGNOUT_URL ||
   `${loginServiceUrl}/api/auth/signout?callbackUrl=${encodeURIComponent(loginServiceUrl)}`;
@@ -150,6 +152,37 @@ function Avatar() {
   );
 }
 
+function useCurrentStudent() {
+  const [student, setStudent] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStudent() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/students/current`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!cancelled && response.ok) {
+          setStudent(data.student || null);
+        }
+      } catch {
+        if (!cancelled) {
+          setStudent(null);
+        }
+      }
+    }
+
+    loadStudent();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return student;
+}
+
 function StudyPanel({ panel, open, onToggle }) {
   const isCoreMaterial = panel.title === "Study A: Core Material";
 
@@ -187,6 +220,13 @@ function StudyPanel({ panel, open, onToggle }) {
 export default function DashboardPage() {
   const [openPanel, setOpenPanel] = useState(null);
   const { language, languageOptions, setLanguage } = useLanguage();
+  const student = useCurrentStudent();
+  const studentName = student?.full_name || "Student";
+  const firstName = studentName.split(" ")[0] || studentName;
+  const admissionNo = student?.admission_no || "-";
+  const rollNo = student?.roll_no || "-";
+  const className = student?.class_name || (student?.class_id ? `Class ${student.class_id}` : "-");
+  const section = student?.section || "-";
 
   return (
     <main className="app-shell">
@@ -229,12 +269,12 @@ export default function DashboardPage() {
             <Avatar />
             <div className="student-info">
               <p>Welcome back,</p>
-              <h1>Aarav</h1>
+              <h1>{firstName}</h1>
               <div className="chips">
-                <span>Roll No.: 23</span>
-                <span>Admission No.: 2024/08/0156</span>
-                <span>Class: Class 9</span>
-                <span>Section: A</span>
+                <span>Roll No.: {rollNo}</span>
+                <span>Admission No.: {admissionNo}</span>
+                <span>Class: {className}</span>
+                <span>Section: {section}</span>
               </div>
             </div>
           </div>

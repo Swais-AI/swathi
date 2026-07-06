@@ -1,18 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getApiBaseUrl } from "../api-base-url";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
 const API_BASE_URL = getApiBaseUrl();
-const STUDENT_ID = 23;
-
-const chapters = [
-  { id: 1, title: "Democratic India", subject: "Social Science", lesson: "Lesson 1" },
-  { id: 2, title: "Constitutional Values", subject: "Social Science", lesson: "Lesson 2" },
-  { id: 3, title: "Local Government", subject: "Social Science", lesson: "Lesson 3" }
-];
+const DEFAULT_CLASS_ID = process.env.NEXT_PUBLIC_DEFAULT_CLASS_ID || "18";
 
 const learnerTracks = [
   {
@@ -35,195 +29,248 @@ const learnerTracks = [
   }
 ];
 
-const fallbackPaths = {
-  "Fast Reader": [
-    "Read the chapter summary and mark unfamiliar terms.",
-    "Attempt higher-order questions before reviewing notes.",
-    "Create a one-page revision map for the chapter.",
-    "Take a timed quiz and move to enrichment practice."
-  ],
-  "Average Reader": [
-    "Read the chapter in two focused sections.",
-    "Write three key points after each section.",
-    "Review solved examples or teacher notes.",
-    "Attempt the quiz, revise weak areas, then retry missed questions."
-  ],
-  "Slow Reader": [
-    "Read one small section at a time with audio support if needed.",
-    "Underline keywords and write their meanings.",
-    "Use short recap notes before each quiz attempt.",
-    "Practice easier questions first, then retry with teacher/AI hints."
-  ]
-};
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => ({}));
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 25000) {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-  } finally {
-    window.clearTimeout(timeoutId);
+  if (!response.ok) {
+    throw new Error(typeof data.detail === "string" ? data.detail : "Request failed.");
   }
+
+  return data;
 }
 
-function classifyReader(metrics) {
-  let score = 0;
+function metricValue(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "0";
+  }
 
-  if (metrics.reading_time_minutes <= 20) score += 2;
-  else if (metrics.reading_time_minutes <= 40) score += 1;
-
-  if (metrics.quiz_score >= 85) score += 2;
-  else if (metrics.quiz_score >= 60) score += 1;
-
-  if (metrics.comprehension_score >= 85) score += 2;
-  else if (metrics.comprehension_score >= 60) score += 1;
-
-  if (metrics.retry_count === 0) score += 1;
-  else if (metrics.retry_count >= 3) score -= 1;
-
-  if (score >= 5) return "Fast Reader";
-  if (score >= 3) return "Average Reader";
-  return "Slow Reader";
+  return Number(value).toFixed(1).replace(/\.0$/, "");
 }
 
 export default function AiLearningPathPage() {
-  const [chapterId, setChapterId] = useState(1);
-  const [metrics, setMetrics] = useState({
-    reading_time_minutes: 28,
-    quiz_score: 76,
-    retry_count: 1,
-    comprehension_score: 72
-  });
+  const [student, setStudent] = useState(null);
+  const [performance, setPerformance] = useState(null);
+  const [classes, setClasses] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [chapters, setChapters] = useState([]);
+  const [selectedClass, setSelectedClass] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState("");
+  const [selectedChapter, setSelectedChapter] = useState("");
   const [learningPath, setLearningPath] = useState(null);
+  const [generatedContent, setGeneratedContent] = useState(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [loadingPage, setLoadingPage] = useState(true);
+  const [loadingSubjects, setLoadingSubjects] = useState(false);
+  const [loadingChapters, setLoadingChapters] = useState(false);
+  const [generatingPath, setGeneratingPath] = useState(false);
+  const [generatingContent, setGeneratingContent] = useState(false);
 
-  const selectedChapter = useMemo(() => chapters.find((chapter) => chapter.id === Number(chapterId)) || chapters[0], [chapterId]);
-  const localClassification = useMemo(() => classifyReader(metrics), [metrics]);
+  const classification = performance?.classification || "Average Reader";
+  const selectedTrack = useMemo(() => learnerTracks.find((track) => track.key === classification) || learnerTracks[1], [classification]);
 
-  function updateMetric(name, value) {
-    setMetrics((current) => ({ ...current, [name]: Number(value) }));
-  }
+  useEffect(() => {
+    let cancelled = false;
 
-  function buildPayload() {
-    return {
-      student_id: STUDENT_ID,
-      chapter_id: selectedChapter.id,
-      chapter_title: selectedChapter.title,
-      ...metrics
+    async function loadInitialData() {
+      setLoadingPage(true);
+      setError("");
+
+      try {
+        const [studentData, classesData] = await Promise.all([
+          fetchJson(`${API_BASE_URL}/students/current`),
+          fetchJson(`${API_BASE_URL}/classes`)
+        ]);
+        const currentStudent = studentData.student;
+        const currentClassId = currentStudent?.class_id || DEFAULT_CLASS_ID;
+        const availableClasses = Array.isArray(classesData.classes) ? classesData.classes : [];
+        const classId = availableClasses.some((item) => String(item.class_id) === String(currentClassId))
+          ? String(currentClassId)
+          : String(availableClasses[0]?.class_id || "");
+
+        const performanceData = await fetchJson(`${API_BASE_URL}/student-performance-summary?student_id=${currentStudent.student_id}`);
+
+        if (!cancelled) {
+          setStudent(currentStudent);
+          setClasses(availableClasses);
+          setSelectedClass(classId);
+          setPerformance(performanceData);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || "Unable to load AI learning data.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingPage(false);
+        }
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      cancelled = true;
     };
-  }
+  }, []);
 
-  function buildFallbackPath(classification) {
-    const track = learnerTracks.find((item) => item.key === classification);
+  useEffect(() => {
+    let cancelled = false;
 
-    return {
-      provider: "frontend-fallback",
-      chapter_title: selectedChapter.title,
-      classification,
-      track_title: track.title,
-      summary: track.description,
-      focus_area: "Backend AI service is not reachable, so this path used the local mock rules.",
-      steps: fallbackPaths[classification],
-      recommended_materials: [
-        `${track.title} - ${selectedChapter.title} reading notes`,
-        `${selectedChapter.title} recap worksheet`,
-        `${selectedChapter.title} adaptive quiz practice`
-      ]
-    };
-  }
-
-  async function handleGenerate() {
-    setStatus("Generating learning path...");
-    setError("");
-    setNotice("");
-
-    try {
-      const response = await fetchWithTimeout(`${API_BASE_URL}/learning-path/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload())
-      });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(typeof data.detail === "string" ? data.detail : "Unable to generate learning path.");
+    async function loadSubjects() {
+      if (!selectedClass) {
+        setSubjects([]);
+        setSelectedSubject("");
+        return;
       }
 
+      setLoadingSubjects(true);
+      setSubjects([]);
+      setSelectedSubject("");
+      setChapters([]);
+      setSelectedChapter("");
+      setGeneratedContent(null);
+
+      try {
+        const data = await fetchJson(`${API_BASE_URL}/subjects?class_id=${selectedClass}`);
+        if (!cancelled) {
+          setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || "Unable to load subjects.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingSubjects(false);
+        }
+      }
+    }
+
+    loadSubjects();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClass]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadChapters() {
+      if (!selectedClass || !selectedSubject) {
+        setChapters([]);
+        setSelectedChapter("");
+        return;
+      }
+
+      setLoadingChapters(true);
+      setChapters([]);
+      setSelectedChapter("");
+      setGeneratedContent(null);
+
+      try {
+        const params = new URLSearchParams({
+          class_id: selectedClass,
+          subject_id: selectedSubject
+        });
+        const data = await fetchJson(`${API_BASE_URL}/chapter-content-list?${params.toString()}`);
+        if (!cancelled) {
+          setChapters(Array.isArray(data.chapters) ? data.chapters : []);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || "Unable to load chapters.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingChapters(false);
+        }
+      }
+    }
+
+    loadChapters();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClass, selectedSubject]);
+
+  async function refreshPerformance() {
+    if (!student?.student_id) {
+      return;
+    }
+
+    setStatus("Refreshing performance summary...");
+    setError("");
+
+    try {
+      const data = await fetchJson(`${API_BASE_URL}/student-performance-summary?student_id=${student.student_id}`);
+      setPerformance(data);
+      setStatus("Performance summary refreshed.");
+    } catch (refreshError) {
+      setError(refreshError.message || "Unable to refresh performance summary.");
+    }
+  }
+
+  async function generateLearningPath() {
+    if (!student || !performance) {
+      return;
+    }
+
+    setGeneratingPath(true);
+    setStatus("Generating AI learning path...");
+    setError("");
+
+    try {
+      const data = await fetchJson(`${API_BASE_URL}/learning-path/generate-overall`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          student_id: student.student_id,
+          assignment_marks: performance.assignment_marks,
+          quiz_score: performance.quiz_score,
+          unit_test_marks: performance.unit_test_marks,
+          retry_count: performance.retry_count
+        })
+      });
+      setPerformance((current) => ({ ...(current || {}), ...data.metrics, classification: data.classification }));
       setLearningPath(data.learning_path);
-      setStatus(`Learning path generated from ${data.learning_path?.provider || "AI"} service.`);
+      setStatus("AI learning path generated from overall performance.");
     } catch (generateError) {
-      const fallback = buildFallbackPath(localClassification);
-      setLearningPath(fallback);
-      setNotice(generateError.name === "AbortError" ? "Backend is not responding, so the local mock AI path was used." : `${generateError.message} Showing local mock AI path.`);
-      setStatus("Local mock learning path generated. See the personalized path below.");
+      setError(generateError.message || "Unable to generate learning path.");
+    } finally {
+      setGeneratingPath(false);
     }
   }
 
-  async function handleSave() {
-    setSaving(true);
+  async function generateStudyContent() {
+    if (!student || !selectedChapter) {
+      setError("Please select a class, subject, and chapter before generating content.");
+      return;
+    }
+
+    setGeneratingContent(true);
+    setStatus("Generating AI study content...");
     setError("");
-    setNotice("");
-    setStatus("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/student-learning-profile`, {
+      const data = await fetchJson(`${API_BASE_URL}/ai/generate-study-content`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload())
+        body: JSON.stringify({
+          student_id: student.student_id,
+          chapter_content_id: Number(selectedChapter),
+          classification
+        })
       });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(typeof data.detail === "string" ? data.detail : "Unable to save learning profile.");
-      }
-
-      setLearningPath(data.learning_path || data.profile?.generated_path);
-      setStatus("Learning profile saved.");
-    } catch (saveError) {
-      setError(saveError.message || "Unable to save learning profile.");
+      setGeneratedContent(data);
+      setStatus("AI study content generated for the selected chapter.");
+    } catch (generateError) {
+      setError(generateError.message || "Unable to generate study content.");
     } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleFetchSaved() {
-    setLoadingSaved(true);
-    setError("");
-    setNotice("");
-    setStatus("");
-
-    try {
-      const params = new URLSearchParams({
-        student_id: String(STUDENT_ID),
-        chapter_id: String(selectedChapter.id)
-      });
-      const response = await fetch(`${API_BASE_URL}/student-learning-profile?${params.toString()}`);
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(typeof data.detail === "string" ? data.detail : "No saved learning profile found.");
-      }
-
-      setLearningPath(data.profile.generated_path);
-      setMetrics({
-        reading_time_minutes: data.profile.reading_time_minutes,
-        quiz_score: data.profile.quiz_score,
-        retry_count: data.profile.retry_count,
-        comprehension_score: data.profile.comprehension_score
-      });
-      setStatus("Saved learning profile loaded.");
-    } catch (fetchError) {
-      setError(fetchError.message || "Unable to fetch saved learning profile.");
-    } finally {
-      setLoadingSaved(false);
+      setGeneratingContent(false);
     }
   }
 
@@ -236,144 +283,139 @@ export default function AiLearningPathPage() {
             <div className="card-title-row">
               <div>
                 <h2>AI Learning Path</h2>
-                <p>Personalized reading track for the selected chapter.</p>
+                <p>Overall performance decides the learner path; selected chapter decides generated study content.</p>
               </div>
-              <span className="status-pill completed">{localClassification}</span>
+              <span className="status-pill completed">{classification}</span>
             </div>
 
             <div className="learning-track-grid">
               {learnerTracks.map((track) => (
-                <section className={`learning-track ${localClassification === track.key ? "selected" : ""}`} key={track.key}>
+                <section className={`learning-track ${classification === track.key ? "selected" : ""}`} key={track.key}>
                   <h3>{track.title}</h3>
                   <p>{track.description}</p>
                   <div className="track-marker-row">
-                    {track.markers.map((marker) => (
-                      <span key={marker}>{marker}</span>
-                    ))}
+                    {track.markers.map((marker) => <span key={marker}>{marker}</span>)}
                   </div>
                 </section>
               ))}
             </div>
 
+            <div className="result-grid">
+              <div><span>Assignment Marks</span><strong>{metricValue(performance?.assignment_marks)}%</strong></div>
+              <div><span>Quiz Result</span><strong>{metricValue(performance?.quiz_score)}%</strong></div>
+              <div><span>Unit Test Marks</span><strong>{metricValue(performance?.unit_test_marks)}%</strong></div>
+              <div><span>Retry Count</span><strong>{performance?.retry_count ?? 0}</strong></div>
+            </div>
+
             <div className="learning-form-grid">
               <label>
-                <span>Chapter</span>
-                <select value={chapterId} onChange={(event) => setChapterId(Number(event.target.value))}>
-                  {chapters.map((chapter) => (
-                    <option value={chapter.id} key={chapter.id}>
-                      {chapter.lesson} - {chapter.title}
+                <span>Class</span>
+                <select value={selectedClass} disabled={loadingPage} onChange={(event) => setSelectedClass(event.target.value)}>
+                  <option value="" disabled>Select Class</option>
+                  {classes.map((classItem) => (
+                    <option value={classItem.class_id} key={classItem.class_id}>
+                      {classItem.class_name}{classItem.section_name ? ` - ${classItem.section_name}` : ""}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                <span>Reading Time (mins)</span>
-                <input type="number" min="0" max="600" value={metrics.reading_time_minutes} onChange={(event) => updateMetric("reading_time_minutes", event.target.value)} />
+                <span>Subject</span>
+                <select value={selectedSubject} disabled={!selectedClass || loadingSubjects} onChange={(event) => setSelectedSubject(event.target.value)}>
+                  <option value="" disabled>{loadingSubjects ? "Loading Subjects" : "Select Subject"}</option>
+                  {subjects.map((subject) => (
+                    <option value={subject.subject_id} key={subject.subject_id}>{subject.subject_name}</option>
+                  ))}
+                </select>
               </label>
               <label>
-                <span>Quiz Score (%)</span>
-                <input type="number" min="0" max="100" value={metrics.quiz_score} onChange={(event) => updateMetric("quiz_score", event.target.value)} />
-              </label>
-              <label>
-                <span>Retry Count</span>
-                <input type="number" min="0" max="50" value={metrics.retry_count} onChange={(event) => updateMetric("retry_count", event.target.value)} />
-              </label>
-              <label>
-                <span>Comprehension Score (%)</span>
-                <input type="number" min="0" max="100" value={metrics.comprehension_score} onChange={(event) => updateMetric("comprehension_score", event.target.value)} />
+                <span>Chapter</span>
+                <select value={selectedChapter} disabled={!selectedSubject || loadingChapters} onChange={(event) => setSelectedChapter(event.target.value)}>
+                  <option value="" disabled>{loadingChapters ? "Loading Chapters" : "Select Chapter"}</option>
+                  {chapters.map((chapter) => (
+                    <option value={chapter.chapter_content_id} key={chapter.chapter_content_id}>{chapter.content_title}</option>
+                  ))}
+                </select>
               </label>
             </div>
 
             <div className="quiz-submit-row">
-              <button className="primary-button" type="button" onClick={handleGenerate}>Generate Path</button>
-              <button className="soft-button" type="button" onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Profile"}</button>
-              <button className="soft-button" type="button" onClick={handleFetchSaved} disabled={loadingSaved}>{loadingSaved ? "Loading..." : "Fetch Saved"}</button>
+              <button className="soft-button" type="button" onClick={refreshPerformance} disabled={loadingPage}>Refresh Performance</button>
+              <button className="primary-button" type="button" onClick={generateLearningPath} disabled={!performance || generatingPath}>
+                {generatingPath ? "Generating..." : "Generate Path"}
+              </button>
+              <button className="primary-button" type="button" onClick={generateStudyContent} disabled={!selectedChapter || generatingContent}>
+                {generatingContent ? "Generating..." : "Generate Content"}
+              </button>
             </div>
 
             {status && <div className="learning-status success" role="status">{status}</div>}
-            {notice && <div className="learning-status notice" role="status">{notice}</div>}
             {error && <div className="learning-status error" role="alert">{error}</div>}
           </article>
 
           {learningPath && (
-            <>
-              <article className="module-card generated-path-card">
-                <div className="card-title-row">
-                  <div>
-                    <h2>{learningPath.track_title}</h2>
-                    <p>{learningPath.summary}</p>
-                  </div>
-                  <span className="status-pill in-progress">{learningPath.provider}</span>
+            <article className="module-card generated-path-card">
+              <div className="card-title-row">
+                <div>
+                  <h2>{learningPath.track_title}</h2>
+                  <p>{learningPath.summary}</p>
                 </div>
-                <div className="learning-focus-box">
-                  <strong>Focus Area</strong>
-                  <p>{learningPath.focus_area}</p>
-                </div>
-                <ol className="learning-step-list">
-                  {learningPath.steps.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ol>
-                <div className="recommended-materials">
-                  <h3>Recommended Material</h3>
-                  {learningPath.recommended_materials.map((material) => (
-                    <span key={material}>{material}</span>
-                  ))}
-                </div>
-              </article>
+                <span className="status-pill in-progress">{learningPath.provider}</span>
+              </div>
+              <div className="learning-focus-box">
+                <strong>Focus Area</strong>
+                <p>{learningPath.focus_area}</p>
+              </div>
+              <ol className="learning-step-list">
+                {(learningPath.steps || []).map((step) => <li key={step}>{step}</li>)}
+              </ol>
+              <div className="recommended-materials">
+                <h3>Recommended Material</h3>
+                {(learningPath.recommended_materials || []).map((material) => <span key={material}>{material}</span>)}
+              </div>
+            </article>
+          )}
 
-              <article className="module-card generated-content-preview-card">
-                <div className="card-title-row">
-                  <div>
-                    <h2>Generated Content Preview</h2>
-                    <p>Personalized study content layout based on the selected reader type.</p>
-                  </div>
-                  <span className="status-pill not-started">Design Preview</span>
+          {generatedContent && (
+            <article className="module-card generated-content-preview-card">
+              <div className="card-title-row">
+                <div>
+                  <h2>{generatedContent.chapter_title}</h2>
+                  <p>AI generated study content for {generatedContent.classification}.</p>
                 </div>
+                <span className="status-pill not-started">Generated Content</span>
+              </div>
 
-                <div className="content-preview-toolbar" aria-label="Generated content sections">
-                  <button className="active" type="button">Simple Notes</button>
-                  <button type="button">Key Terms</button>
-                  <button type="button">Recap</button>
-                  <button type="button">Practice</button>
-                </div>
-
-                <div className="content-preview-layout">
-                  <section className="content-preview-main">
-                    <div className="preview-section-head">
-                      <span className="preview-icon notes" aria-hidden="true" />
-                      <div>
-                        <h3>Simple Notes</h3>
-                        <p>Chapter explanation will be generated here.</p>
-                      </div>
+              <div className="content-preview-layout">
+                <section className="content-preview-main">
+                  <div className="preview-section-head">
+                    <span className="preview-icon notes" aria-hidden="true" />
+                    <div>
+                      <h3>Simple Notes</h3>
+                      <p>{(generatedContent.generated_content?.simple_notes || []).join(" ")}</p>
                     </div>
-                    <div className="preview-empty-block large" />
-                    <div className="preview-empty-block" />
-                    <div className="preview-empty-block short" />
-                  </section>
+                  </div>
+                  <div className="learning-focus-box">
+                    <strong>Recap</strong>
+                    <p>{generatedContent.generated_content?.recap || "-"}</p>
+                  </div>
+                  <ol className="learning-step-list">
+                    {(generatedContent.generated_content?.practice_questions || []).map((question) => <li key={question}>{question}</li>)}
+                  </ol>
+                </section>
 
-                  <aside className="content-preview-side">
-                    <section>
-                      <h3>Content Structure</h3>
-                      <div className="preview-check-list">
-                        <span>Reading blocks</span>
-                        <span>Keyword support</span>
-                        <span>Quick recap</span>
-                        <span>Practice prompts</span>
-                      </div>
-                    </section>
-                    <section>
-                      <h3>Actions</h3>
-                      <div className="content-preview-actions">
-                        <button className="soft-button" type="button">Regenerate</button>
-                        <button className="soft-button" type="button">Save Content</button>
-                        <button className="soft-button" type="button">Download PDF</button>
-                      </div>
-                    </section>
-                  </aside>
-                </div>
-              </article>
-            </>
+                <aside className="content-preview-side">
+                  <section>
+                    <h3>Key Terms</h3>
+                    <div className="preview-check-list">
+                      {(generatedContent.generated_content?.key_terms || []).map((item) => (
+                        <span key={`${item.term}-${item.meaning}`}>{item.term}: {item.meaning}</span>
+                      ))}
+                    </div>
+                  </section>
+                </aside>
+              </div>
+            </article>
           )}
         </div>
       </section>
