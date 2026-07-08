@@ -3,15 +3,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { getApiBaseUrl } from "./api-base-url";
 
-const chapterSubjects = ["Social Science", "Maths", "Hindi", "Telugu"];
-const chapterLessons = ["Lesson 1", "Lesson 2", "Lesson 3", "Lesson 5", "Lesson 6", "Lesson 7", "Lesson 8", "Lesson 9", "Lesson 10"];
 const API_BASE_URL = getApiBaseUrl();
+const DEFAULT_CLASS_ID = process.env.NEXT_PUBLIC_DEFAULT_CLASS_ID || "18";
+const DEFAULT_CLASS_LABEL = process.env.NEXT_PUBLIC_DEFAULT_CLASS_LABEL || "Class 8";
 
 export default function ChapterSelector({ showReader = false }) {
+  const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
-  const [selectedLesson, setSelectedLesson] = useState("");
+  const [selectedChapter, setSelectedChapter] = useState("");
+  const [classes, setClasses] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [chapters, setChapters] = useState([]);
   const [chapterContent, setChapterContent] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingClasses, setLoadingClasses] = useState(true);
+  const [loadingSubjects, setLoadingSubjects] = useState(true);
+  const [loadingChapters, setLoadingChapters] = useState(false);
   const [error, setError] = useState("");
   const [isReading, setIsReading] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -37,6 +44,159 @@ export default function ChapterSelector({ showReader = false }) {
       }
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadClassesForStudent() {
+      setLoadingClasses(true);
+      setError("");
+
+      try {
+        const [classesResponse, studentResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/classes`),
+          fetch(`${API_BASE_URL}/students/current`)
+        ]);
+        const classesData = await classesResponse.json().catch(() => ({}));
+        const studentData = await studentResponse.json().catch(() => ({}));
+
+        if (!classesResponse.ok) {
+          throw new Error(typeof classesData.detail === "string" ? classesData.detail : "Unable to load classes.");
+        }
+        if (!studentResponse.ok) {
+          throw new Error(typeof studentData.detail === "string" ? studentData.detail : "Unable to load student class.");
+        }
+
+        const availableClasses = Array.isArray(classesData.classes) ? classesData.classes : [];
+        const currentClassId = studentData.student?.class_id || DEFAULT_CLASS_ID;
+        const selectedClassId = availableClasses.some((classItem) => String(classItem.class_id) === String(currentClassId))
+          ? String(currentClassId)
+          : String(availableClasses[0]?.class_id || "");
+
+        if (!cancelled) {
+          setClasses(availableClasses);
+          setSelectedClass(selectedClassId);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || "Unable to load classes.");
+          setClasses([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingClasses(false);
+        }
+      }
+    }
+
+    loadClassesForStudent();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSubjectsForClass() {
+      if (!selectedClass) {
+        setSubjects([]);
+        setSelectedSubject("");
+        setChapters([]);
+        setSelectedChapter("");
+        setLoadingSubjects(false);
+        return;
+      }
+
+      setLoadingSubjects(true);
+      setError("");
+      setSubjects([]);
+      setSelectedSubject("");
+      setChapters([]);
+      setSelectedChapter("");
+      setChapterContent(null);
+
+      try {
+        const params = new URLSearchParams({ class_id: selectedClass });
+        const response = await fetch(`${API_BASE_URL}/subjects?${params.toString()}`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load subjects.");
+        }
+
+        if (!cancelled) {
+          setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || "Unable to load subjects.");
+          setSubjects([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingSubjects(false);
+        }
+      }
+    }
+
+    loadSubjectsForClass();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClass]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadChaptersForSubject() {
+      if (!selectedClass || !selectedSubject) {
+        setChapters([]);
+        setSelectedChapter("");
+        return;
+      }
+
+      setLoadingChapters(true);
+      setError("");
+      setChapters([]);
+      setSelectedChapter("");
+      setChapterContent(null);
+
+      try {
+        const params = new URLSearchParams({
+          class_id: selectedClass,
+          subject_id: selectedSubject
+        });
+        const response = await fetch(`${API_BASE_URL}/chapter-content-list?${params.toString()}`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load chapters.");
+        }
+
+        if (!cancelled) {
+          setChapters(Array.isArray(data.chapters) ? data.chapters : []);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || "Unable to load chapters.");
+          setChapters([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingChapters(false);
+        }
+      }
+    }
+
+    loadChaptersForSubject();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSubject, selectedClass]);
 
   useEffect(() => {
     if (speechSupported) {
@@ -104,8 +264,8 @@ export default function ChapterSelector({ showReader = false }) {
       return;
     }
 
-    if (!selectedSubject || !selectedLesson) {
-      setError("Please select a subject and lesson.");
+    if (!selectedSubject || !selectedChapter) {
+      setError("Please select a subject and chapter.");
       setChapterContent(null);
       return;
     }
@@ -116,8 +276,7 @@ export default function ChapterSelector({ showReader = false }) {
 
     try {
       const params = new URLSearchParams({
-        subject: selectedSubject,
-        lesson: selectedLesson
+        chapter_content_id: selectedChapter
       });
       const response = await fetch(`${API_BASE_URL}/chapter-content?${params.toString()}`);
       const data = await response.json().catch(() => ({}));
@@ -138,27 +297,59 @@ export default function ChapterSelector({ showReader = false }) {
   return (
     <>
       <form className="chapter-selector chapter-page-selector" aria-label="Chapter selection" onSubmit={handleSubmit}>
-        <select value={selectedSubject} aria-label="Select subject" onChange={(event) => setSelectedSubject(event.target.value)}>
+        <select
+          value={selectedClass}
+          aria-label="Select class"
+          onChange={(event) => setSelectedClass(event.target.value)}
+          disabled={loadingClasses}
+        >
           <option value="" disabled>
-            Select Subject...
+            {loadingClasses ? "Loading Classes..." : "Select Class..."}
           </option>
-          {chapterSubjects.map((subject) => (
-            <option value={subject} key={subject}>
-              {subject}
+          {classes.map((classItem) => {
+            const sectionLabel = classItem.section_name ? ` - ${classItem.section_name}` : "";
+            const yearLabel = classItem.academic_year ? ` (${classItem.academic_year})` : "";
+            return (
+              <option value={classItem.class_id} key={classItem.class_id}>
+                {classItem.class_name}{sectionLabel}{yearLabel}
+              </option>
+            );
+          })}
+        </select>
+        <select
+          value={selectedSubject}
+          aria-label="Select subject"
+          onChange={(event) => setSelectedSubject(event.target.value)}
+          disabled={!selectedClass || loadingSubjects}
+        >
+          <option value="" disabled>
+            {loadingSubjects ? "Loading Subjects..." : "Select Subject..."}
+          </option>
+          {subjects.map((subject) => (
+            <option value={subject.subject_id} key={subject.subject_id}>
+              {subject.subject_name}
             </option>
           ))}
         </select>
-        <select value={selectedLesson} aria-label="Select lesson" onChange={(event) => setSelectedLesson(event.target.value)}>
+        <select
+          value={selectedChapter}
+          aria-label="Select chapter"
+          onChange={(event) => {
+            setSelectedChapter(event.target.value);
+            setChapterContent(null);
+          }}
+          disabled={!selectedSubject || loadingChapters}
+        >
           <option value="" disabled>
-            Select Book Title...
+            {loadingChapters ? "Loading Chapters..." : "Select Book Title..."}
           </option>
-          {chapterLessons.map((lesson) => (
-            <option value={lesson} key={lesson}>
-              {lesson}
+          {chapters.map((chapter) => (
+            <option value={chapter.chapter_content_id} key={chapter.chapter_content_id}>
+              {chapter.content_title}
             </option>
           ))}
         </select>
-        <button type="submit" disabled={loading}>
+        <button type="submit" disabled={loading || loadingClasses || loadingSubjects || loadingChapters}>
           {loading ? "Loading" : "Go"}
         </button>
       </form>

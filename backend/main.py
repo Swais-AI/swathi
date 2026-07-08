@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from ai_learning_path_service import classify_reader, get_learning_path_generator
+from ai_learning_path_service import classify_performance, classify_reader, get_learning_path_generator
 
 
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
@@ -23,22 +23,26 @@ app = FastAPI(title="SGS Chapter Content API")
 
 
 def get_cors_origins() -> list[str]:
+    local_origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3004",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3002",
+        "http://127.0.0.1:3004",
+    ]
     configured_origins = os.getenv("CORS_ALLOW_ORIGINS", "")
     if configured_origins:
-        return [
+        configured = [
             origin.strip().rstrip("/")
             for origin in configured_origins.split(",")
             if origin.strip()
         ]
+        return list(dict.fromkeys([*configured, *local_origins]))
 
-    return [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:3004",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "http://127.0.0.1:3004",
-    ]
+    return local_origins
 
 
 app.add_middleware(
@@ -58,6 +62,20 @@ class LearningProfileInput(BaseModel):
     quiz_score: int = Field(..., ge=0, le=100)
     retry_count: int = Field(..., ge=0, le=50)
     comprehension_score: int = Field(..., ge=0, le=100)
+
+
+class PerformanceLearningPathInput(BaseModel):
+    student_id: int = Field(..., ge=1)
+    assignment_marks: float = Field(..., ge=0, le=100)
+    quiz_score: float = Field(..., ge=0, le=100)
+    unit_test_marks: float = Field(..., ge=0, le=100)
+    retry_count: int = Field(..., ge=0, le=500)
+
+
+class StudyContentGenerationInput(BaseModel):
+    student_id: int = Field(..., ge=1)
+    chapter_content_id: int = Field(..., ge=1)
+    classification: str | None = Field(default=None, max_length=40)
 
 
 class QuizGenerationInput(BaseModel):
@@ -207,6 +225,7 @@ def get_current_student():
             full_name,
             roll_no,
             admission_no,
+            class_id,
             COALESCE(NULLIF(BTRIM(class_name), ''), class_id::text) AS class_name,
             section
         FROM sgs_student_master
@@ -238,6 +257,101 @@ def get_current_student():
         raise HTTPException(status_code=404, detail="No active student found.")
 
     return {"student": student}
+
+
+@app.get("/classes")
+def get_classes():
+    query = """
+        SELECT
+            class_id,
+            class_name,
+            section_name,
+            academic_year
+        FROM sgs_class_master
+        WHERE class_id IS NOT NULL
+          AND NULLIF(BTRIM(class_name), '') IS NOT NULL
+        ORDER BY class_name, section_name, class_id;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query)
+                classes = cursor.fetchall()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Class master table is missing. Confirm sgs_class_master exists.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch classes.") from error
+
+    return {"classes": classes}
+
+
+@app.get("/subjects")
+def get_subjects(
+    class_id: int = Query(..., ge=1),
+):
+    query = """
+        SELECT DISTINCT
+            subject_id,
+            subject_name,
+            subject_code
+        FROM sgs_subject_master
+        WHERE class_id = %s
+          AND subject_id IS NOT NULL
+          AND NULLIF(BTRIM(subject_name), '') IS NOT NULL
+        ORDER BY subject_name;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query, (class_id,))
+                subjects = cursor.fetchall()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Subject master table is missing. Confirm sgs_subject_master exists.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch subjects.") from error
+
+    return {"subjects": subjects}
+
+
+@app.get("/chapter-content-list")
+def get_chapter_content_list(
+    class_id: int = Query(..., ge=1),
+    subject_id: int = Query(..., ge=1),
+):
+    query = """
+        SELECT
+            chapter_content_id,
+            content_title
+        FROM sgs_chapter_content
+        WHERE class_id = %s
+          AND subject_id = %s
+          AND chapter_content_id IS NOT NULL
+          AND NULLIF(BTRIM(content_title), '') IS NOT NULL
+        ORDER BY chapter_content_id;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query, (class_id, subject_id))
+                chapters = cursor.fetchall()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Chapter content table is missing. Confirm sgs_chapter_content exists.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch chapters.") from error
+
+    return {"chapters": chapters}
 
 
 @app.get("/notices")
@@ -528,11 +642,233 @@ def build_learning_profile_payload(profile: LearningProfileInput):
     return classification, path
 
 
+def normalize_percent(value) -> float:
+    if value is None:
+        return 0.0
+
+    numeric_value = float(value)
+    if numeric_value <= 20:
+        return round(numeric_value * 5, 2)
+
+    return round(min(numeric_value, 100), 2)
+
+
+def calculate_performance_summary(student_id: int) -> dict:
+    query = """
+        SELECT
+            (
+                SELECT AVG(percentage)
+                FROM sgs_assignment_results
+                WHERE student_id = %(student_id)s
+            ) AS assignment_marks,
+            (
+                SELECT AVG(score)
+                FROM sgs_quiz_response
+                WHERE student_id = %(student_id)s
+                  AND COALESCE(completed_flag, true) = true
+            ) AS quiz_score,
+            (
+                SELECT GREATEST(COUNT(*) - 1, 0)
+                FROM sgs_quiz_response
+                WHERE student_id = %(student_id)s
+                  AND COALESCE(completed_flag, true) = true
+            ) AS retry_count,
+            (
+                SELECT AVG((marks_obtained / NULLIF(max_marks, 0)) * 100)
+                FROM sgs_student_marks
+                WHERE student_id = %(student_id)s
+                  AND COALESCE(record_status, 'Active') = 'Active'
+            ) AS unit_test_marks;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query, {"student_id": student_id})
+                row = cursor.fetchone() or {}
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Performance tables are missing. Confirm sgs_assignment_results, sgs_quiz_response, and sgs_student_marks exist.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch performance summary.") from error
+
+    metrics = {
+        "assignment_marks": normalize_percent(row.get("assignment_marks")),
+        "quiz_score": normalize_percent(row.get("quiz_score")),
+        "unit_test_marks": normalize_percent(row.get("unit_test_marks")),
+        "retry_count": int(row.get("retry_count") or 0),
+    }
+    classification = classify_performance(**metrics)
+
+    return {
+        "student_id": student_id,
+        **metrics,
+        "classification": classification,
+    }
+
+
+@app.get("/student-performance-summary")
+def get_student_performance_summary(
+    student_id: int = Query(..., ge=1),
+):
+    return calculate_performance_summary(student_id)
+
+
+@app.post("/learning-path/generate-overall")
+def generate_overall_learning_path(payload: PerformanceLearningPathInput):
+    metrics = {
+        "assignment_marks": round(payload.assignment_marks, 2),
+        "quiz_score": round(payload.quiz_score, 2),
+        "unit_test_marks": round(payload.unit_test_marks, 2),
+        "retry_count": payload.retry_count,
+    }
+    classification = classify_performance(**metrics)
+
+    try:
+        path = get_learning_path_generator().generate_path(
+            "Overall Performance",
+            classification,
+            metrics,
+        )
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return {
+        "student_id": payload.student_id,
+        "classification": classification,
+        "metrics": metrics,
+        "learning_path": path,
+    }
+
+
+@app.post("/ai/generate-study-content")
+def generate_study_content(payload: StudyContentGenerationInput):
+    performance = calculate_performance_summary(payload.student_id)
+    classification = payload.classification or performance["classification"]
+
+    query = """
+        SELECT
+            chapter_content_id,
+            content_title,
+            full_text_content
+        FROM sgs_chapter_content
+        WHERE chapter_content_id = %s
+          AND full_text_content IS NOT NULL
+          AND BTRIM(full_text_content) <> ''
+        LIMIT 1;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query, (payload.chapter_content_id,))
+                chapter = cursor.fetchone()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Chapter content table is missing. Confirm sgs_chapter_content exists.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch chapter content.") from error
+
+    if chapter is None:
+        raise HTTPException(status_code=404, detail="Chapter content not found.")
+
+    chapter_text = str(chapter["full_text_content"])[:18000]
+    prompt = f"""
+        You are an expert school teacher. Generate personalized study content for a student.
+
+        Learner type: {classification}
+        Chapter title: {chapter["content_title"]}
+        Overall performance metrics:
+        {json.dumps({key: performance[key] for key in ["assignment_marks", "quiz_score", "unit_test_marks", "retry_count"]})}
+
+        Return only valid JSON in this exact shape:
+        {{
+          "simple_notes": ["5 to 8 clear bullet notes"],
+          "key_terms": [{{"term": "term", "meaning": "short meaning"}}],
+          "recap": "short recap paragraph",
+          "practice_questions": ["4 to 6 practice questions"]
+        }}
+
+        Rules:
+        - For Fast Reader, keep notes concise and add challenging practice.
+        - For Average Reader, use balanced explanation and checkpoint questions.
+        - For Slow Reader, use simple words, smaller points, and easier questions.
+        - Use only the chapter content below.
+
+        Chapter content:
+        {chapter_text}
+    """
+
+    try:
+        generated_content = gemini_generate_json(prompt, max_output_tokens=4096)
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return {
+        "student_id": payload.student_id,
+        "chapter_content_id": payload.chapter_content_id,
+        "chapter_title": chapter["content_title"],
+        "classification": classification,
+        "generated_content": generated_content,
+    }
+
+
 @app.get("/chapter-content")
 def get_chapter_content(
-    subject: str = Query(..., min_length=1),
-    lesson: str = Query(..., min_length=1),
+    chapter_content_id: int | None = Query(default=None, ge=1),
+    subject: str | None = Query(default=None, min_length=1),
+    lesson: str | None = Query(default=None, min_length=1),
 ):
+    if chapter_content_id is not None:
+        query = """
+            SELECT
+                chapter_content_id,
+                chapter_id,
+                class_id,
+                subject_id,
+                content_title,
+                full_text_content
+            FROM sgs_chapter_content
+            WHERE chapter_content_id = %s
+              AND full_text_content IS NOT NULL
+              AND BTRIM(full_text_content) <> ''
+            LIMIT 1;
+        """
+
+        try:
+            with get_connection() as connection:
+                with connection.cursor(row_factory=dict_row) as cursor:
+                    cursor.execute(query, (chapter_content_id,))
+                    row = cursor.fetchone()
+        except psycopg.errors.UndefinedTable as error:
+            raise HTTPException(
+                status_code=500,
+                detail="Chapter content table is missing. Create sgs_chapter_content in PostgreSQL.",
+            ) from error
+        except psycopg.Error as error:
+            raise HTTPException(
+                status_code=500,
+                detail="Unable to fetch chapter content.",
+            ) from error
+
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No chapter content found for this selection.",
+            )
+
+        return row
+
+    if subject is None or lesson is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Select a chapter before loading content.",
+        )
+
     normalized_subject = subject.strip().casefold()
     normalized_lesson = lesson.strip().casefold()
 
