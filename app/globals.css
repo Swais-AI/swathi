@@ -497,6 +497,15 @@ button {
   line-height: 1.45;
 }
 
+.notice-item footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.notice-item footer span,
 .notice-item > span {
   width: fit-content;
   padding: 4px 8px;
@@ -505,6 +514,31 @@ button {
   color: #ff5a00;
   font-size: 12px;
   font-weight: 900;
+}
+
+.notice-item.assignment-alert {
+  border-left: 3px solid #0d6efd;
+  padding-left: 10px;
+}
+
+.notice-item .alert-status {
+  background: #eef5ff;
+  color: #0e4d87;
+}
+
+.notice-item .alert-status.high {
+  background: #fff1f0;
+  color: #c9281f;
+}
+
+.notice-item .alert-status.medium {
+  background: #fff7e0;
+  color: #9a5d00;
+}
+
+.notice-item .alert-status.low {
+  background: #eef8f1;
+  color: #16753b;
 }
 
 .notice-message {

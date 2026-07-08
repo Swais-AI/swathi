@@ -22,50 +22,54 @@ function formatNoticeDate(dateValue) {
   });
 }
 
+function getPriorityLabelClass(priority) {
+  if (priority === "high") {
+    return "high";
+  }
+  if (priority === "medium") {
+    return "medium";
+  }
+  return "low";
+}
+
 export default function NotificationBell() {
   const menuRef = useRef(null);
-  const [notices, setNotices] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [count, setCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
+  const [assignmentAlertError, setAssignmentAlertError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadNotices() {
+    async function loadNotifications() {
       setError("");
 
       try {
-        let studentClass = "";
-        const studentResponse = await fetch(`${API_BASE_URL}/students/current`);
-        const studentData = await studentResponse.json().catch(() => ({}));
-
-        if (studentResponse.ok && studentData.student?.class_name) {
-          studentClass = studentData.student.class_name;
-        }
-
-        const params = new URLSearchParams();
-        if (studentClass) {
-          params.set("student_class", studentClass);
-        }
-
-        const response = await fetch(`${API_BASE_URL}/notices${params.toString() ? `?${params.toString()}` : ""}`);
+        const response = await fetch(`${API_BASE_URL}/notifications`);
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load notices.");
+          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load notifications.");
         }
 
         if (!cancelled) {
-          setNotices(Array.isArray(data.notices) ? data.notices : []);
+          setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+          setCount(Number.isFinite(data.count) ? data.count : 0);
+          setAssignmentAlertError(typeof data.assignment_alert_error === "string" ? data.assignment_alert_error : "");
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError.message || "Unable to load notices.");
+          setNotifications([]);
+          setCount(0);
+          setAssignmentAlertError("");
+          setError(loadError.message || "Unable to load notifications.");
         }
       }
     }
 
-    loadNotices();
+    loadNotifications();
 
     return () => {
       cancelled = true;
@@ -94,29 +98,41 @@ export default function NotificationBell() {
     <div className="notification-menu" ref={menuRef}>
       <button className="bell-button" aria-label="Notifications" type="button" onClick={() => setOpen((current) => !current)}>
         <span className="bell-icon" aria-hidden="true" />
-        {notices.length > 0 && <span className="badge">{notices.length}</span>}
+        {count > 0 && <span className="badge">{count}</span>}
       </button>
 
       {open && (
-        <div className="notice-dropdown" role="dialog" aria-label="Notice board">
+        <div className="notice-dropdown" role="dialog" aria-label="Notifications">
           <div className="notice-dropdown-head">
-            <strong>Notice Board</strong>
-            <span>{notices.length}</span>
+            <strong>Notifications</strong>
+            <span>{count}</span>
           </div>
 
           {error && <p className="notice-message">{error}</p>}
-          {!error && notices.length === 0 && <p className="notice-message">No notices found.</p>}
+          {!error && assignmentAlertError && <p className="notice-message">Assignment AI alert unavailable: {assignmentAlertError}</p>}
+          {!error && notifications.length === 0 && <p className="notice-message">No notifications found.</p>}
 
-          {!error && notices.map((notice) => (
-            <article className="notice-item" key={notice.notice_id}>
-              <div>
-                <strong>{notice.notice_title || "Notice"}</strong>
-                <time>{formatNoticeDate(notice.notice_date)}</time>
-              </div>
-              <p>{notice.notice_text || "-"}</p>
-              <span>{notice.applicable_class || "All"}</span>
-            </article>
-          ))}
+          {!error && notifications.map((item) => {
+            const isAssignment = item.type === "assignment";
+            const itemDate = isAssignment ? item.due_date : item.notice_date;
+            const meta = isAssignment
+              ? [item.subject_name, item.chapter_name].filter(Boolean).join(" - ") || "Assignment"
+              : item.applicable_class || "All";
+
+            return (
+              <article className={`notice-item ${isAssignment ? "assignment-alert" : ""}`} key={item.id}>
+                <div>
+                  <strong>{item.title || (isAssignment ? "Assignment" : "Notice")}</strong>
+                  <time>{formatNoticeDate(itemDate)}</time>
+                </div>
+                <p>{item.message || item.body || "-"}</p>
+                <footer>
+                  <span>{meta}</span>
+                  {isAssignment && <span className={`alert-status ${getPriorityLabelClass(item.priority)}`}>{item.status}</span>}
+                </footer>
+              </article>
+            );
+          })}
         </div>
       )}
     </div>

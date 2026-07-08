@@ -1,6 +1,7 @@
 import os
 import json
 from contextlib import contextmanager
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -197,6 +198,84 @@ def gemini_generate_json(prompt: str, max_output_tokens: int = 4096) -> dict:
             continue
 
     raise RuntimeError("Gemini translation failed. " + " | ".join(errors))
+
+
+def parse_date_value(value) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def get_due_status(due_date_value) -> dict:
+    due_date = parse_date_value(due_date_value)
+    if due_date is None:
+        return {"label": "Upcoming", "priority": "low", "days_left": None, "is_countable": False}
+
+    days_left = (due_date - date.today()).days
+    if days_left < 0:
+        return {"label": "Overdue", "priority": "high", "days_left": days_left, "is_countable": True}
+    if days_left == 0:
+        return {"label": "Due Today", "priority": "high", "days_left": days_left, "is_countable": True}
+    if days_left <= 3:
+        return {"label": "Due Soon", "priority": "medium", "days_left": days_left, "is_countable": True}
+    if days_left <= 7:
+        return {"label": "Upcoming", "priority": "low", "days_left": days_left, "is_countable": False}
+
+    return {"label": "Later", "priority": "low", "days_left": days_left, "is_countable": False}
+
+
+def apply_ai_assignment_messages(assignments: list[dict]) -> list[dict]:
+    if not assignments:
+        return assignments
+
+    if not os.getenv("GEMINI_API_KEY"):
+        raise RuntimeError("GEMINI_API_KEY is required for assignment due alerts.")
+
+    prompt = f"""
+        You are a helpful school assistant. Rewrite assignment due alerts for a student.
+
+        Return only valid JSON in this exact shape:
+        {{
+          "alerts": [
+            {{"assignment_id": 1, "message": "short student-friendly alert"}}
+          ]
+        }}
+
+        Rules:
+        - Keep each message under 24 words.
+        - Mention urgency clearly for overdue, due today, and due soon assignments.
+        - Do not invent dates, marks, or submission details.
+        - Use simple school-student language.
+
+        Assignments:
+        {json.dumps(assignments, default=str, ensure_ascii=False)}
+    """
+
+    generated = gemini_generate_json(prompt, max_output_tokens=2048)
+
+    messages = {}
+    for item in generated.get("alerts", []):
+        if not isinstance(item, dict):
+            continue
+        assignment_id = item.get("assignment_id")
+        message = str(item.get("message") or "").strip()
+        if assignment_id is not None and message:
+            messages[int(assignment_id)] = message[:260]
+
+    for assignment in assignments:
+        message = messages.get(int(assignment["assignment_id"]))
+        if not message:
+            raise RuntimeError("Gemini did not return an alert message for every due assignment.")
+        assignment["message"] = message
+
+    return assignments
 
 
 @app.get("/health")
@@ -399,6 +478,148 @@ def get_notices(
         raise HTTPException(status_code=500, detail="Unable to fetch notices.") from error
 
     return {"notices": notices}
+
+
+@app.get("/notifications")
+def get_notifications():
+    student_query = """
+        SELECT
+            student_id,
+            class_id,
+            COALESCE(NULLIF(BTRIM(class_name), ''), class_id::text) AS class_name
+        FROM sgs_student_master
+        WHERE COALESCE(record_status, 'Active') = 'Active'
+          AND COALESCE(is_active, true) = true
+        ORDER BY
+            CASE WHEN admission_no IS NULL THEN 1 ELSE 0 END,
+            student_id
+        LIMIT 1;
+    """
+    assignment_query = """
+        SELECT
+            a.assignment_id,
+            a.assignment_title,
+            a.assignment_text,
+            a.due_date,
+            a.class_id,
+            a.subject_id,
+            a.chapter_id,
+            s.subject_name,
+            c.chapter_name
+        FROM sgs_assignment_master a
+        LEFT JOIN sgs_subject_master s ON s.subject_id = a.subject_id
+        LEFT JOIN sgs_chapter_master c ON c.chapter_id = a.chapter_id
+        WHERE a.class_id = %s
+          AND COALESCE(a.record_status, 'Active') = 'Active'
+          AND a.due_date IS NOT NULL
+          AND a.due_date <= %s
+        ORDER BY a.due_date ASC, a.assignment_id DESC
+        LIMIT 12;
+    """
+    notices_query = """
+        SELECT
+            notice_id,
+            notice_title,
+            notice_text,
+            notice_date,
+            applicable_class,
+            posted_by,
+            created_datetime,
+            COALESCE(is_read, false) AS is_read
+        FROM sgs_notice_board
+        WHERE COALESCE(record_status, 'Active') = 'Active'
+          AND (
+            applicable_class IS NULL
+            OR BTRIM(applicable_class) = ''
+            OR LOWER(applicable_class) IN ('all', LOWER(%s))
+          )
+        ORDER BY
+            COALESCE(is_read, false) ASC,
+            notice_date DESC NULLS LAST,
+            created_datetime DESC NULLS LAST,
+            notice_id DESC
+        LIMIT 10;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(student_query)
+                student = cursor.fetchone()
+                if student is None:
+                    raise HTTPException(status_code=404, detail="No active student found.")
+
+                cursor.execute(assignment_query, (student["class_id"], date.today() + timedelta(days=7)))
+                assignment_rows = cursor.fetchall()
+
+                cursor.execute(notices_query, (student["class_name"],))
+                notice_rows = cursor.fetchall()
+    except HTTPException:
+        raise
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Notification source table is missing. Confirm student, assignment, subject, chapter, and notice tables exist.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch notifications.") from error
+
+    assignments = []
+    for row in assignment_rows:
+        status = get_due_status(row.get("due_date"))
+        assignments.append(
+            {
+                "type": "assignment",
+                "id": f"assignment-{row['assignment_id']}",
+                "assignment_id": row["assignment_id"],
+                "title": row.get("assignment_title") or "Assignment",
+                "body": row.get("assignment_text") or "",
+                "due_date": row.get("due_date"),
+                "class_id": row.get("class_id"),
+                "subject_id": row.get("subject_id"),
+                "chapter_id": row.get("chapter_id"),
+                "subject_name": row.get("subject_name"),
+                "chapter_name": row.get("chapter_name"),
+                "status": status["label"],
+                "priority": status["priority"],
+                "days_left": status["days_left"],
+                "is_countable": status["is_countable"],
+            }
+        )
+
+    assignment_alert_error = None
+    try:
+        assignments = apply_ai_assignment_messages(assignments)
+    except RuntimeError as error:
+        assignments = []
+        assignment_alert_error = str(error)
+
+    notices = [
+        {
+            "type": "notice",
+            "id": f"notice-{notice['notice_id']}",
+            "notice_id": notice["notice_id"],
+            "title": notice.get("notice_title") or "Notice",
+            "message": notice.get("notice_text") or "-",
+            "notice_date": notice.get("notice_date"),
+            "applicable_class": notice.get("applicable_class") or "All",
+            "is_read": bool(notice.get("is_read")),
+            "priority": "low",
+            "is_countable": not bool(notice.get("is_read")),
+        }
+        for notice in notice_rows
+    ]
+    notifications = [*assignments, *notices]
+    count = sum(1 for item in notifications if item.get("is_countable"))
+
+    return {
+        "student": student,
+        "count": count,
+        "assignments": assignments,
+        "notices": notices,
+        "notifications": notifications,
+        "assignment_alert_error": assignment_alert_error,
+    }
 
 
 def normalize_quiz_questions(raw_questions) -> list[dict]:
