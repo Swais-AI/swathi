@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -96,6 +97,14 @@ class TextTranslationInput(BaseModel):
     source_language: str | None = Field(default=None, max_length=80)
 
 
+class AssignmentSubmissionInput(BaseModel):
+    assignment_id: int = Field(..., ge=1)
+    file_name: str = Field(..., min_length=1, max_length=255)
+    file_type: str | None = Field(default=None, max_length=160)
+    file_size: int = Field(..., ge=1, le=10 * 1024 * 1024)
+    file_content_base64: str = Field(..., min_length=1)
+
+
 def get_database_url() -> str:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -110,6 +119,36 @@ def get_database_url() -> str:
 def get_connection():
     with psycopg.connect(get_database_url()) as connection:
         yield connection
+
+
+def fetch_current_student_record() -> dict:
+    query = """
+        SELECT
+            student_id,
+            full_name,
+            roll_no,
+            admission_no,
+            class_id,
+            COALESCE(NULLIF(BTRIM(class_name), ''), class_id::text) AS class_name,
+            section
+        FROM sgs_student_master
+        WHERE COALESCE(record_status, 'Active') = 'Active'
+          AND COALESCE(is_active, true) = true
+        ORDER BY
+            CASE WHEN admission_no IS NULL THEN 1 ELSE 0 END,
+            student_id
+        LIMIT 1;
+    """
+
+    with get_connection() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(query)
+            student = cursor.fetchone()
+
+    if student is None:
+        raise HTTPException(status_code=404, detail="No active student found.")
+
+    return student
 
 
 def extract_json_object(content: str) -> dict:
@@ -298,29 +337,8 @@ def database_health_check():
 
 @app.get("/students/current")
 def get_current_student():
-    query = """
-        SELECT
-            student_id,
-            full_name,
-            roll_no,
-            admission_no,
-            class_id,
-            COALESCE(NULLIF(BTRIM(class_name), ''), class_id::text) AS class_name,
-            section
-        FROM sgs_student_master
-        WHERE COALESCE(record_status, 'Active') = 'Active'
-          AND COALESCE(is_active, true) = true
-        ORDER BY
-            CASE WHEN admission_no IS NULL THEN 1 ELSE 0 END,
-            student_id
-        LIMIT 1;
-    """
-
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query)
-                student = cursor.fetchone()
+        student = fetch_current_student_record()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -332,10 +350,239 @@ def get_current_student():
             detail="Unable to fetch student details.",
         ) from error
 
-    if student is None:
-        raise HTTPException(status_code=404, detail="No active student found.")
-
     return {"student": student}
+
+
+def ensure_assignment_submission_columns(cursor) -> None:
+    cursor.execute(
+        """
+        ALTER TABLE sgs_assignment_results
+        ADD COLUMN IF NOT EXISTS submitted_file_name VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS submitted_file_type VARCHAR(160),
+        ADD COLUMN IF NOT EXISTS submitted_file_size BIGINT,
+        ADD COLUMN IF NOT EXISTS submitted_file_content BYTEA;
+        """
+    )
+
+
+@app.get("/assignments/current")
+def get_current_assignments():
+    try:
+        student = fetch_current_student_record()
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                ensure_assignment_submission_columns(cursor)
+                cursor.execute(
+                    """
+                    SELECT
+                        a.assignment_id,
+                        a.assignment_title,
+                        a.assignment_text,
+                        a.due_date,
+                        a.class_id,
+                        a.subject_id,
+                        r.assignment_result_id,
+                        r.status AS submission_status,
+                        r.submitted_at,
+                        r.submitted_file_name,
+                        r.submitted_file_size
+                    FROM sgs_assignment_master a
+                    LEFT JOIN sgs_assignment_results r
+                      ON r.assignment_id = a.assignment_id
+                     AND r.student_id = %s
+                     AND COALESCE(r.record_status, 'ACTIVE') = 'ACTIVE'
+                    WHERE a.class_id = %s
+                      AND COALESCE(a.record_status, 'Active') = 'Active'
+                    ORDER BY a.due_date ASC NULLS LAST, a.assignment_id DESC
+                    LIMIT 20;
+                    """,
+                    (student["student_id"], student["class_id"]),
+                )
+                assignments = cursor.fetchall()
+
+                if not assignments:
+                    cursor.execute(
+                        """
+                        SELECT
+                            a.assignment_id,
+                            a.assignment_title,
+                            a.assignment_text,
+                            a.due_date,
+                            a.class_id,
+                            a.subject_id,
+                            r.assignment_result_id,
+                            r.status AS submission_status,
+                            r.submitted_at,
+                            r.submitted_file_name,
+                            r.submitted_file_size
+                        FROM sgs_assignment_master a
+                        LEFT JOIN sgs_assignment_results r
+                          ON r.assignment_id = a.assignment_id
+                         AND r.student_id = %s
+                         AND COALESCE(r.record_status, 'ACTIVE') = 'ACTIVE'
+                        WHERE COALESCE(a.record_status, 'Active') = 'Active'
+                        ORDER BY a.due_date ASC NULLS LAST, a.assignment_id DESC
+                        LIMIT 20;
+                        """,
+                        (student["student_id"],),
+                    )
+                    assignments = cursor.fetchall()
+    except psycopg.errors.UndefinedColumn as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Assignment submission columns are missing. Submit one assignment once to initialize columns.",
+        ) from error
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Assignment tables are missing. Confirm sgs_assignment_master and sgs_assignment_results exist.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch assignments.") from error
+
+    normalized_assignments = []
+    for index, assignment in enumerate(assignments, start=1):
+        submitted = bool(assignment.get("submitted_at") or assignment.get("submitted_file_name"))
+        normalized_assignments.append(
+            {
+                "number": index,
+                "assignment_id": assignment["assignment_id"],
+                "assignment_title": assignment.get("assignment_title") or "Assignment",
+                "assignment_text": assignment.get("assignment_text") or "",
+                "due_date": assignment.get("due_date"),
+                "class_id": assignment.get("class_id"),
+                "subject_id": assignment.get("subject_id"),
+                "status": "Submitted" if submitted else (assignment.get("submission_status") or "Not Started"),
+                "action": "View" if submitted else "Start",
+                "submitted_at": assignment.get("submitted_at"),
+                "submitted_file_name": assignment.get("submitted_file_name"),
+                "submitted_file_size": assignment.get("submitted_file_size"),
+            }
+        )
+
+    return {"student": student, "assignments": normalized_assignments}
+
+
+@app.post("/assignments/submit")
+def submit_assignment(payload: AssignmentSubmissionInput):
+    try:
+        file_bytes = base64.b64decode(payload.file_content_base64, validate=True)
+    except (ValueError, base64.binascii.Error) as error:
+        raise HTTPException(status_code=400, detail="Invalid file content.") from error
+
+    if len(file_bytes) != payload.file_size:
+        raise HTTPException(status_code=400, detail="Uploaded file size does not match file metadata.")
+
+    try:
+        student = fetch_current_student_record()
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                ensure_assignment_submission_columns(cursor)
+                cursor.execute(
+                    """
+                    SELECT assignment_id, assignment_title, due_date, subject_id
+                    FROM sgs_assignment_master
+                    WHERE assignment_id = %s
+                      AND COALESCE(record_status, 'Active') = 'Active'
+                    LIMIT 1;
+                    """,
+                    (payload.assignment_id,),
+                )
+                assignment = cursor.fetchone()
+                if assignment is None:
+                    raise HTTPException(status_code=404, detail="Assignment not found.")
+
+                cursor.execute(
+                    """
+                    SELECT assignment_result_id
+                    FROM sgs_assignment_results
+                    WHERE assignment_id = %s
+                      AND student_id = %s
+                      AND COALESCE(record_status, 'ACTIVE') = 'ACTIVE'
+                    LIMIT 1;
+                    """,
+                    (payload.assignment_id, student["student_id"]),
+                )
+                existing_result = cursor.fetchone()
+
+                if existing_result:
+                    cursor.execute(
+                        """
+                        UPDATE sgs_assignment_results
+                        SET status = 'Submitted',
+                            submitted_at = CURRENT_TIMESTAMP,
+                            submitted_file_name = %s,
+                            submitted_file_type = %s,
+                            submitted_file_size = %s,
+                            submitted_file_content = %s,
+                            modified_datetime = CURRENT_TIMESTAMP,
+                            modified_user_id = %s
+                        WHERE assignment_result_id = %s
+                        RETURNING assignment_result_id, submitted_at, submitted_file_name, submitted_file_size;
+                        """,
+                        (
+                            payload.file_name,
+                            payload.file_type or "application/octet-stream",
+                            payload.file_size,
+                            file_bytes,
+                            str(student["student_id"]),
+                            existing_result["assignment_result_id"],
+                        ),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO sgs_assignment_results (
+                            assignment_id,
+                            student_id,
+                            subject_id,
+                            class_name,
+                            assignment_title,
+                            status,
+                            due_date,
+                            submitted_at,
+                            submitted_file_name,
+                            submitted_file_type,
+                            submitted_file_size,
+                            submitted_file_content,
+                            created_user_id
+                        )
+                        VALUES (%s, %s, %s, %s, %s, 'Submitted', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
+                        RETURNING assignment_result_id, submitted_at, submitted_file_name, submitted_file_size;
+                        """,
+                        (
+                            payload.assignment_id,
+                            student["student_id"],
+                            assignment.get("subject_id"),
+                            student.get("class_name"),
+                            assignment.get("assignment_title"),
+                            assignment.get("due_date"),
+                            payload.file_name,
+                            payload.file_type or "application/octet-stream",
+                            payload.file_size,
+                            file_bytes,
+                            str(student["student_id"]),
+                        ),
+                    )
+
+                saved_submission = cursor.fetchone()
+            connection.commit()
+    except HTTPException:
+        raise
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Assignment tables are missing. Confirm sgs_assignment_master and sgs_assignment_results exist.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to save assignment submission.") from error
+
+    return {
+        "submitted": True,
+        "student_id": student["student_id"],
+        "assignment_id": payload.assignment_id,
+        "submission": saved_submission,
+    }
 
 
 @app.get("/classes")
