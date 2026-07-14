@@ -84,6 +84,10 @@ class QuizGenerationInput(BaseModel):
     question_count: int = Field(default=5, ge=3, le=10)
 
 
+class MockTestGenerationInput(BaseModel):
+    chapter_id: int = Field(..., ge=1)
+
+
 class TextTranslationBatchInput(BaseModel):
     texts: list[str] = Field(..., min_length=1, max_length=80)
     target_language: str = Field(..., min_length=2, max_length=80)
@@ -750,6 +754,62 @@ def generate_ai_quiz(payload: QuizGenerationInput):
         "chapter_id": chapter["chapter_id"],
         "chapter_title": chapter["chapter_title"],
         "quiz": questions[: payload.question_count],
+    }
+
+
+@app.post("/ai/generate-mock-test")
+def generate_ai_mock_test(payload: MockTestGenerationInput):
+    question_count = 5
+    chapter = fetch_chapter_for_quiz(payload.chapter_id)
+    content = str(chapter["full_text_content"])[:18000]
+    prompt = f"""
+        You are an expert school examiner. Generate exactly {question_count} multiple-choice
+        mock-test questions from the chapter content below.
+
+        Return only valid JSON in this exact shape:
+        {{
+          "quiz": [
+            {{
+              "question": "Question text",
+              "options": ["Option A", "Option B", "Option C", "Option D"],
+              "answer": "Exact correct option text",
+              "explanation": "One short explanation"
+            }}
+          ]
+        }}
+
+        Rules:
+        - Return exactly {question_count} questions.
+        - Use exactly 4 options per question and make only one option correct.
+        - Include 2 easy, 2 medium, and 1 challenging question.
+        - Test understanding and application, not only memorization.
+        - Keep language clear and appropriate for a school student.
+        - Do not include markdown or extra text.
+
+        Chapter content:
+        {content}
+    """
+
+    try:
+        quiz_data = gemini_generate_json(prompt)
+        questions = normalize_quiz_questions(quiz_data.get("quiz"))
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    if len(questions) < question_count:
+        raise HTTPException(
+            status_code=502,
+            detail="AI did not return exactly 5 valid mock-test questions. Please generate again.",
+        )
+
+    return {
+        "chapter_id": chapter["chapter_id"],
+        "chapter_title": chapter["chapter_title"],
+        "question_count": question_count,
+        "duration_minutes": 15,
+        "quiz": questions[:question_count],
     }
 
 
