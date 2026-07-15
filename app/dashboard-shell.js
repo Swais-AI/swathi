@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
+import AppSelect from "./app-select";
 import { getApiBaseUrl } from "./api-base-url";
 import { withBasePath, withoutBasePath } from "./base-path";
 import LanguagePageTranslator from "./language-page-translator";
@@ -24,6 +26,7 @@ const settingsItems = [
 ];
 
 const loginServiceUrl = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
+const DashboardShellContext = createContext(false);
 const API_BASE_URL = getApiBaseUrl();
 const loginServiceSignOutUrl =
   process.env.NEXT_PUBLIC_LOGIN_SIGNOUT_URL ||
@@ -117,6 +120,20 @@ function useCurrentStudent() {
 }
 
 export default function DashboardShell({ children }) {
+  const isNestedShell = useContext(DashboardShellContext);
+
+  if (isNestedShell) {
+    return children;
+  }
+
+  return (
+    <DashboardShellContext.Provider value>
+      <DashboardShellFrame>{children}</DashboardShellFrame>
+    </DashboardShellContext.Provider>
+  );
+}
+
+function DashboardShellFrame({ children }) {
   const pathname = usePathname();
   const currentPath = withoutBasePath(pathname);
   const { language, languageOptions, setLanguage } = useLanguage();
@@ -149,10 +166,10 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list" aria-label="Student navigation">
           {navItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={withBasePath(href)} key={label}>
+            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
-            </a>
+            </Link>
           ))}
         </nav>
 
@@ -160,10 +177,10 @@ export default function DashboardShell({ children }) {
 
         <nav className="nav-list compact" aria-label="Settings navigation">
           {settingsItems.map(([icon, label, href]) => (
-            <a className={`nav-item ${isActive(href) ? "active" : ""}`} href={withBasePath(href)} key={label}>
+            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
               <Icon name={icon} />
               <span>{label}</span>
-            </a>
+            </Link>
           ))}
         </nav>
 
@@ -194,11 +211,14 @@ export default function DashboardShell({ children }) {
           <div className="top-actions">
             <label className="language-select">
               <span>Language</span>
-              <select value={language} aria-label="Select language" onChange={(event) => setLanguage(event.target.value)}>
-                {languageOptions.map((option) => (
-                  <option value={option.code} key={option.code}>{option.label}</option>
-                ))}
-              </select>
+              <AppSelect
+                value={language}
+                options={languageOptions.map((option) => ({ value: option.code, label: option.label }))}
+                onChange={setLanguage}
+                ariaLabel="Select language"
+                variant="dark"
+                className="language-app-select"
+              />
             </label>
             <VoiceTextTools />
             <NotificationBell />

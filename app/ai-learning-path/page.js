@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
@@ -310,32 +311,42 @@ export default function AiLearningPathPage() {
             <div className="learning-form-grid">
               <label>
                 <span>Class</span>
-                <select value={selectedClass} disabled={loadingPage} onChange={(event) => setSelectedClass(event.target.value)}>
-                  <option value="" disabled>Select Class</option>
-                  {classes.map((classItem) => (
-                    <option value={classItem.class_id} key={classItem.class_id}>
-                      {classItem.class_name}{classItem.section_name ? ` - ${classItem.section_name}` : ""}
-                    </option>
-                  ))}
-                </select>
+                <AppSelect
+                  value={selectedClass}
+                  options={classes.map((classItem) => ({
+                    value: classItem.class_id,
+                    label: `${classItem.class_name}${classItem.section_name ? ` - ${classItem.section_name}` : ""}`
+                  }))}
+                  disabled={loadingPage}
+                  onChange={setSelectedClass}
+                  placeholder="Select Class"
+                  ariaLabel="Select class"
+                  searchable
+                />
               </label>
               <label>
                 <span>Subject</span>
-                <select value={selectedSubject} disabled={!selectedClass || loadingSubjects} onChange={(event) => setSelectedSubject(event.target.value)}>
-                  <option value="" disabled>{loadingSubjects ? "Loading Subjects" : "Select Subject"}</option>
-                  {subjects.map((subject) => (
-                    <option value={subject.subject_id} key={subject.subject_id}>{subject.subject_name}</option>
-                  ))}
-                </select>
+                <AppSelect
+                  value={selectedSubject}
+                  options={subjects.map((subject) => ({ value: subject.subject_id, label: subject.subject_name }))}
+                  disabled={!selectedClass || loadingSubjects}
+                  onChange={setSelectedSubject}
+                  placeholder={loadingSubjects ? "Loading Subjects" : "Select Subject"}
+                  ariaLabel="Select subject"
+                  searchable
+                />
               </label>
               <label>
                 <span>Chapter</span>
-                <select value={selectedChapter} disabled={!selectedSubject || loadingChapters} onChange={(event) => setSelectedChapter(event.target.value)}>
-                  <option value="" disabled>{loadingChapters ? "Loading Chapters" : "Select Chapter"}</option>
-                  {chapters.map((chapter) => (
-                    <option value={chapter.chapter_content_id} key={chapter.chapter_content_id}>{chapter.content_title}</option>
-                  ))}
-                </select>
+                <AppSelect
+                  value={selectedChapter}
+                  options={chapters.map((chapter) => ({ value: chapter.chapter_content_id, label: chapter.content_title }))}
+                  disabled={!selectedSubject || loadingChapters}
+                  onChange={setSelectedChapter}
+                  placeholder={loadingChapters ? "Loading Chapters" : "Select Chapter"}
+                  ariaLabel="Select chapter"
+                  searchable
+                />
               </label>
             </div>
 
