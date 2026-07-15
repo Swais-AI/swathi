@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
@@ -134,20 +135,26 @@ export default function AiTranslatorPage() {
                 <div className="translator-controls">
                   <label>
                     <span>Source</span>
-                    <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>
-                      <option value="Auto Detect">Auto Detect</option>
-                      {languages.map((language) => (
-                        <option value={language} key={language}>{language}</option>
-                      ))}
-                    </select>
+                    <AppSelect
+                      value={sourceLanguage}
+                      options={[
+                        { value: "Auto Detect", label: "Auto Detect" },
+                        ...languages.map((language) => ({ value: language, label: language }))
+                      ]}
+                      onChange={setSourceLanguage}
+                      ariaLabel="Select source language"
+                      searchable
+                    />
                   </label>
                   <label>
                     <span>Target</span>
-                    <select value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)}>
-                      {languages.map((language) => (
-                        <option value={language} key={language}>{language}</option>
-                      ))}
-                    </select>
+                    <AppSelect
+                      value={targetLanguage}
+                      options={languages.map((language) => ({ value: language, label: language }))}
+                      onChange={setTargetLanguage}
+                      ariaLabel="Select target language"
+                      searchable
+                    />
                   </label>
                 </div>
                 <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Paste study text here" />

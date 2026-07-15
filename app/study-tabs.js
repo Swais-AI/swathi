@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { withBasePath, withoutBasePath } from "./base-path";
+import * as Accordion from "@radix-ui/react-accordion";
+import { withoutBasePath } from "./base-path";
 
 const studyTabs = [
   {
@@ -79,27 +80,40 @@ export default function StudyTabs() {
   const pathname = usePathname();
   const currentPath = withoutBasePath(pathname);
   const activeIndex = studyTabs.findIndex((tab) => tab.rows.some(([, href]) => currentPath === href || currentPath.startsWith(`${href}/`)));
-  const [openPanel, setOpenPanel] = useState(activeIndex >= 0 ? activeIndex : null);
 
   return (
-    <section className="content-grid study-tab-strip" aria-label="Study modules">
+    <Accordion.Root
+      className="content-grid study-tab-strip"
+      type="single"
+      collapsible
+      defaultValue={activeIndex >= 0 ? `panel-${activeIndex}` : undefined}
+      aria-label="Study modules"
+    >
       {studyTabs.map((tab, index) => (
-        <article className={`study-panel ${tab.tone} ${openPanel === index ? "" : "collapsed"} ${activeIndex === index ? "active-tab" : ""}`} key={tab.title}>
-          <button className="panel-head" type="button" aria-expanded={openPanel === index} onClick={() => setOpenPanel((current) => (current === index ? null : index))}>
-            <PanelIcon name={tab.icon} />
-            <span className="panel-title">{tab.title}</span>
-            <span className="chevron" aria-hidden="true" />
-          </button>
+        <Accordion.Item
+          className={`study-panel ${tab.tone} ${activeIndex === index ? "active-tab" : ""}`}
+          value={`panel-${index}`}
+          key={tab.title}
+        >
+          <Accordion.Header className="panel-heading">
+            <Accordion.Trigger className="panel-head">
+              <PanelIcon name={tab.icon} />
+              <span className="panel-title">{tab.title}</span>
+              <span className="chevron" aria-hidden="true" />
+            </Accordion.Trigger>
+          </Accordion.Header>
           <div className="accent-line" />
-          <div className="panel-body">
-            {tab.rows.map(([label, href]) => (
-              <a className="study-row" href={withBasePath(href)} key={label}>
-                <span>{label}</span>
-              </a>
-            ))}
-          </div>
-        </article>
+          <Accordion.Content className="panel-content">
+            <div className="panel-body">
+              {tab.rows.map(([label, href]) => (
+                <Link className="study-row" href={href} key={label}>
+                  <span>{label}</span>
+                </Link>
+              ))}
+            </div>
+          </Accordion.Content>
+        </Accordion.Item>
       ))}
-    </section>
+    </Accordion.Root>
   );
 }
