@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getApiBaseUrl } from "../api-base-url";
+import AppSelect from "../app-select";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
@@ -338,23 +339,22 @@ function MockTestView() {
 
           <label className="mock-test-chapter-field">
             <span>Select Chapter</span>
-            <select
+            <AppSelect
               value={chapterId}
-              onChange={(event) => {
-                const nextId = Number(event.target.value);
+              options={mockTestChapters.map((chapter) => ({
+                value: chapter.id,
+                label: `${chapter.subject} - ${chapter.title}`
+              }))}
+              onChange={(value) => {
+                const nextId = Number(value);
                 setChapterId(nextId);
                 setChapterTitle(mockTestChapters.find((chapter) => chapter.id === nextId)?.title || "Chapter");
                 setError("");
               }}
               disabled={loading}
-              aria-label="Select mock test chapter"
-            >
-              {mockTestChapters.map((chapter) => (
-                <option value={chapter.id} key={chapter.id}>
-                  {chapter.subject} - {chapter.title}
-                </option>
-              ))}
-            </select>
+              ariaLabel="Select mock test chapter"
+              searchable
+            />
           </label>
 
           {error && <div className="learning-status error" role="alert">{error}</div>}

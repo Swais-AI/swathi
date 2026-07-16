@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
@@ -116,8 +117,8 @@ export default function QuizzesPage() {
     setStatus("");
   }
 
-  function handleChapterChange(event) {
-    setChapterId(Number(event.target.value));
+  function handleChapterChange(value) {
+    setChapterId(Number(value));
     setAnswers({});
     setSubmitted(false);
     setQuizRequested(false);
@@ -142,13 +143,18 @@ export default function QuizzesPage() {
               </div>
 
               <form className="material-filter-row quiz-filter-row" aria-label="Quiz filters">
-                <select value={chapterId} aria-label="Select chapter" onChange={handleChapterChange} disabled={loading}>
-                  {chapters.map((chapter) => (
-                    <option value={chapter.id} key={chapter.id}>
-                      {chapter.lesson} - {chapter.title}
-                    </option>
-                  ))}
-                </select>
+                <AppSelect
+                  value={chapterId}
+                  options={chapters.map((chapter) => ({
+                    value: chapter.id,
+                    label: `${chapter.lesson} - ${chapter.title}`
+                  }))}
+                  ariaLabel="Select chapter"
+                  onChange={handleChapterChange}
+                  disabled={loading}
+                  searchable
+                  className="quiz-chapter-app-select"
+                />
               </form>
 
               <div className="meta-row">
