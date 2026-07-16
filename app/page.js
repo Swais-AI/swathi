@@ -33,9 +33,8 @@ const panels = [
     rows: [
       ["checklist", "1) Unit Test"],
       ["monitor", "2) Mock Test"],
-      ["star", "3) Feedback & Marks"],
-      ["chart", "4) Student Analysis"],
-      ["note", "5) Teacher Remark"]
+      ["chart", "3) Student Analysis"],
+      ["note", "4) Teacher Remark"]
     ]
   }
 ];

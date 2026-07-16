@@ -1499,7 +1499,7 @@ button {
   padding: 12px 10px 28px;
   display: flex;
   align-items: flex-end;
-  gap: 16px;
+  gap: 0;
   background: repeating-linear-gradient(to top, transparent 0 38px, #edf1f5 39px 40px);
 }
 
@@ -1508,6 +1508,8 @@ button {
   position: relative;
   display: grid;
   align-items: end;
+  justify-items: center;
+  flex: 1 1 0;
 }
 
 .bar-stack span,
@@ -1561,6 +1563,16 @@ button {
   color: #1c2939;
   font-size: 13px;
   font-weight: 700;
+}
+
+.bar-chart > .chart-labels {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  left: 10px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  text-align: center;
 }
 
 .heatmap-body {
@@ -3064,6 +3076,73 @@ button {
   border-color: #60a5fa;
   background: rgba(30, 41, 59, 0.88);
   color: #93c5fd;
+}
+
+/* Keep document previews readable on the dark module surface. */
+.module-card .pdf-page {
+  border-color: rgba(96, 165, 250, 0.45);
+  background: #101a3d;
+  color: #f8fafc;
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.4);
+}
+
+.module-card .pdf-page h3,
+.module-card .pdf-page h4,
+.module-card .pdf-page p {
+  color: #f8fafc;
+}
+
+.module-card .pdf-page h4 {
+  color: #7dd3fc;
+}
+
+/* Keep the selected light-green learning track readable. */
+.module-card .learning-track.selected h3,
+.module-card .learning-track.selected p {
+  color: #07192c;
+}
+
+/* Project-wide dark treatment for card-like content surfaces. */
+.analysis-card,
+.content-preview-main,
+.content-preview-side section,
+.preview-check-list span,
+.learning-focus-box,
+.submission-confirmation,
+.submission-confirmation ul {
+  border-color: rgba(96, 165, 250, 0.42);
+  background: #101a3d;
+  color: #f8fafc;
+}
+
+.content-preview-main h3,
+.content-preview-main p,
+.content-preview-main li,
+.content-preview-side h3,
+.content-preview-side p,
+.content-preview-side li,
+.preview-check-list span,
+.module-card .learning-focus-box strong,
+.module-card .learning-focus-box p,
+.submission-confirmation h2,
+.submission-confirmation p,
+.submission-confirmation li {
+  color: #f8fafc;
+}
+
+.assessment-dashboard .analysis-card h3,
+.assessment-dashboard .analysis-card p,
+.analysis-card .legend-list,
+.analysis-card .subject-row,
+.analysis-card .learner-row,
+.analysis-card .test-row,
+.analysis-card .test-row span,
+.analysis-card .focus-row,
+.analysis-card .chart-labels,
+.analysis-card .heatmap-row span,
+.analysis-card .heatmap-labels,
+.analysis-card .ring-chart > span {
+  color: #f8fafc;
 }
 
 .quiz-question,
