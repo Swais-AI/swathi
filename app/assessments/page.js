@@ -161,7 +161,7 @@ function StudentAnalysisView() {
   return (
     <section className="assessment-dashboard student-analysis-view">
       <div className="assessment-dashboard-head">
-        <h2>Student Self-Assessment: Academic Year 2023-24</h2>
+        <h2>Student Self-Assessment: Academic Year 2026</h2>
         <div className="tiny-avatar">AS</div>
       </div>
       <div className="analysis-grid">
