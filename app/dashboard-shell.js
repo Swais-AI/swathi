@@ -96,7 +96,20 @@ function useCurrentStudent() {
 
     async function loadStudent() {
       try {
-        const response = await fetch(`${API_BASE_URL}/students/current`);
+        const sessionResponse = await fetch(`${loginServiceUrl}/api/auth/session`, {
+          credentials: "include"
+        });
+        const session = await sessionResponse.json().catch(() => ({}));
+        const email = session?.user?.email?.trim();
+
+        if (!sessionResponse.ok || !email) {
+          throw new Error("Logged-in student email is unavailable.");
+        }
+
+        const params = new URLSearchParams({ email });
+        const response = await fetch(`${API_BASE_URL}/students/current?${params.toString()}`, {
+          credentials: "include"
+        });
         const data = await response.json().catch(() => ({}));
 
         if (!cancelled && response.ok) {
@@ -139,7 +152,6 @@ function DashboardShellFrame({ children }) {
   const { language, languageOptions, setLanguage } = useLanguage();
   const student = useCurrentStudent();
   const studentName = student?.full_name || "Student";
-  const firstName = studentName.split(" ")[0] || studentName;
   const admissionNo = student?.admission_no || "-";
   const rollNo = student?.roll_no || "-";
   const className = student?.class_name || (student?.class_id ? `Class ${student.class_id}` : "-");
@@ -198,7 +210,7 @@ function DashboardShellFrame({ children }) {
             <Avatar />
             <div className="student-info">
               <p>Welcome back,</p>
-              <h1>{firstName}</h1>
+              <h1>{studentName}</h1>
               <div className="chips">
                 <span>Roll No.: {rollNo}</span>
                 <span>Admission No.: {admissionNo}</span>

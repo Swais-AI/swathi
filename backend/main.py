@@ -125,8 +125,9 @@ def get_connection():
         yield connection
 
 
-def fetch_current_student_record() -> dict:
-    query = """
+def fetch_current_student_record(student_email: str | None = None) -> dict:
+    email_filter = "AND LOWER(BTRIM(student_email)) = LOWER(BTRIM(%s))" if student_email else ""
+    query = f"""
         SELECT
             student_id,
             full_name,
@@ -134,10 +135,12 @@ def fetch_current_student_record() -> dict:
             admission_no,
             class_id,
             COALESCE(NULLIF(BTRIM(class_name), ''), class_id::text) AS class_name,
-            section
+            section,
+            student_email
         FROM sgs_student_master
         WHERE COALESCE(record_status, 'Active') = 'Active'
           AND COALESCE(is_active, true) = true
+          {email_filter}
         ORDER BY
             CASE WHEN admission_no IS NULL THEN 1 ELSE 0 END,
             student_id
@@ -146,11 +149,12 @@ def fetch_current_student_record() -> dict:
 
     with get_connection() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
-            cursor.execute(query)
+            cursor.execute(query, (student_email,) if student_email else ())
             student = cursor.fetchone()
 
     if student is None:
-        raise HTTPException(status_code=404, detail="No active student found.")
+        detail = "No active student found for the logged-in email." if student_email else "No active student found."
+        raise HTTPException(status_code=404, detail=detail)
 
     return student
 
@@ -340,9 +344,11 @@ def database_health_check():
 
 
 @app.get("/students/current")
-def get_current_student():
+def get_current_student(
+    email: str | None = Query(default=None, min_length=3, max_length=150),
+):
     try:
-        student = fetch_current_student_record()
+        student = fetch_current_student_record(email)
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
