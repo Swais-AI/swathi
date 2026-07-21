@@ -3255,6 +3255,17 @@ button {
   color: #f8fafc;
 }
 
+.assessment-ai-card {
+  border-color: rgba(96, 165, 250, 0.45);
+  background: #101a3d;
+  color: #f8fafc;
+}
+
+.assessment-ai-card strong,
+.assessment-ai-card p {
+  color: #f8fafc;
+}
+
 .bell-icon::before {
   left: 7px;
   top: 8px;
