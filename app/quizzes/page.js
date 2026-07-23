@@ -1,18 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
 const API_BASE_URL = getApiBaseUrl();
+const LOGIN_SERVICE_URL = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
 const AI_REQUEST_DELAY_MS = 15000;
-const chapters = [
-  { id: 1, title: "Democratic India", subject: "Social Science", lesson: "Lesson 1" },
-  { id: 2, title: "Constitutional Values", subject: "Social Science", lesson: "Lesson 2" },
-  { id: 3, title: "Local Government", subject: "Social Science", lesson: "Lesson 3" }
-];
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 35000) {
   const controller = new AbortController();
@@ -35,19 +31,64 @@ function waitBeforeAiRequest() {
 }
 
 export default function QuizzesPage() {
-  const [chapterId, setChapterId] = useState(1);
+  const [chapters, setChapters] = useState([]);
+  const [chapterId, setChapterId] = useState("");
   const [questions, setQuestions] = useState([]);
-  const [chapterTitle, setChapterTitle] = useState(chapters[0].title);
+  const [chapterTitle, setChapterTitle] = useState("Select Chapter");
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [quizRequested, setQuizRequested] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [savingResult, setSavingResult] = useState(false);
+  const [loadingChapters, setLoadingChapters] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
 
   const selectedChapter = useMemo(() => {
-    return chapters.find((chapter) => chapter.id === Number(chapterId)) || chapters[0];
-  }, [chapterId]);
+    return chapters.find((chapter) => String(chapter.chapter_id) === String(chapterId)) || null;
+  }, [chapterId, chapters]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadChapters() {
+      setLoadingChapters(true);
+      setError("");
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/quiz-chapters`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load quiz chapters.");
+        }
+
+        const availableChapters = Array.isArray(data.chapters) ? data.chapters : [];
+        if (!cancelled) {
+          setChapters(availableChapters);
+          const firstChapter = availableChapters[0];
+          setChapterId(firstChapter ? String(firstChapter.chapter_id) : "");
+          setChapterTitle(firstChapter?.content_title || "Select Chapter");
+          if (availableChapters.length === 0) {
+            setError("No linked chapter content is available for quiz generation.");
+          }
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || "Unable to load quiz chapters.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingChapters(false);
+        }
+      }
+    }
+
+    loadChapters();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const score = useMemo(() => {
     return questions.reduce((total, question, index) => {
@@ -60,6 +101,11 @@ export default function QuizzesPage() {
   const marks = score * 5;
 
   async function handleAskAi() {
+    if (!selectedChapter) {
+      setError("Select a chapter before generating the quiz.");
+      return;
+    }
+
     setQuizRequested(true);
     setLoading(true);
     setError("");
@@ -67,7 +113,7 @@ export default function QuizzesPage() {
     setAnswers({});
     setSubmitted(false);
     setQuestions([]);
-    setChapterTitle(selectedChapter.title);
+    setChapterTitle(selectedChapter.content_title);
 
     try {
       await waitBeforeAiRequest();
@@ -91,7 +137,7 @@ export default function QuizzesPage() {
       }
 
       setQuestions(generatedQuestions);
-      setChapterTitle(data.chapter_title || selectedChapter.title);
+      setChapterTitle(data.chapter_title || selectedChapter.content_title);
       setStatus("AI quiz generated. Select one answer for each question.");
     } catch (quizError) {
       setError(quizError.name === "AbortError" ? "AI quiz generation timed out. Please try again." : quizError.message);
@@ -101,10 +147,52 @@ export default function QuizzesPage() {
     }
   }
 
-  function handleSubmit() {
-    if (allAnswered) {
+  async function handleSubmit() {
+    if (!allAnswered || !selectedChapter || savingResult) {
+      return;
+    }
+
+    setSavingResult(true);
+    setError("");
+    setStatus("Saving quiz result...");
+
+    try {
+      const sessionResponse = await fetch(`${LOGIN_SERVICE_URL}/api/auth/session`, {
+        credentials: "include"
+      });
+      const session = await sessionResponse.json().catch(() => ({}));
+      const studentEmail = session?.user?.email?.trim();
+
+      if (!sessionResponse.ok || !studentEmail) {
+        throw new Error("Logged-in student email is unavailable.");
+      }
+
+      const percentage = totalMarks > 0 ? Number(((marks / totalMarks) * 100).toFixed(2)) : 0;
+      const response = await fetch(`${API_BASE_URL}/quiz-results`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          student_email: studentEmail,
+          chapter_id: Number(chapterId),
+          score: marks,
+          total_marks: totalMarks,
+          percentage
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Unable to save quiz result.");
+      }
+
       setSubmitted(true);
-      setStatus("Quiz auto-corrected.");
+      setStatus("Quiz auto-corrected and result saved.");
+    } catch (saveError) {
+      setError(saveError.message || "Unable to save quiz result.");
+      setStatus("");
+    } finally {
+      setSavingResult(false);
     }
   }
 
@@ -118,7 +206,9 @@ export default function QuizzesPage() {
   }
 
   function handleChapterChange(value) {
-    setChapterId(Number(value));
+    const nextChapter = chapters.find((chapter) => String(chapter.chapter_id) === String(value));
+    setChapterId(String(value));
+    setChapterTitle(nextChapter?.content_title || "Select Chapter");
     setAnswers({});
     setSubmitted(false);
     setQuizRequested(false);
@@ -146,12 +236,13 @@ export default function QuizzesPage() {
                 <AppSelect
                   value={chapterId}
                   options={chapters.map((chapter) => ({
-                    value: chapter.id,
-                    label: `${chapter.lesson} - ${chapter.title}`
+                    value: chapter.chapter_id,
+                    label: chapter.content_title
                   }))}
                   ariaLabel="Select chapter"
                   onChange={handleChapterChange}
-                  disabled={loading}
+                  disabled={loading || loadingChapters || chapters.length === 0}
+                  placeholder={loadingChapters ? "Loading Chapters..." : "Select Chapter"}
                   searchable
                   className="quiz-chapter-app-select"
                 />
@@ -168,7 +259,7 @@ export default function QuizzesPage() {
 
               {(!quizRequested || error) && (
                 <div className="quiz-submit-row">
-                  <button className="primary-button" type="button" onClick={handleAskAi} disabled={loading}>
+                  <button className="primary-button" type="button" onClick={handleAskAi} disabled={loading || loadingChapters || !selectedChapter}>
                     {loading ? "Generating..." : "Ask AI"}
                   </button>
                 </div>
@@ -214,7 +305,9 @@ export default function QuizzesPage() {
 
                   {!loading && (
                     <div className="quiz-submit-row">
-                      <button className="primary-button" type="button" onClick={handleSubmit} disabled={!allAnswered || submitted}>Submit Quiz</button>
+                      <button className="primary-button" type="button" onClick={handleSubmit} disabled={!allAnswered || submitted || savingResult}>
+                        {savingResult ? "Saving..." : "Submit Quiz"}
+                      </button>
                       <button className="soft-button" type="button" onClick={handleReset}>Reset</button>
                     </div>
                   )}
