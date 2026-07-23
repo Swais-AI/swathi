@@ -8,11 +8,6 @@ import StudyTabs from "../study-tabs";
 
 const API_BASE_URL = getApiBaseUrl();
 const MOCK_TEST_DURATION_SECONDS = 15 * 60;
-const mockTestChapters = [
-  { id: 1, title: "Democratic India", subject: "Social Science" },
-  { id: 2, title: "Constitutional Values", subject: "Social Science" },
-  { id: 3, title: "Local Government", subject: "Social Science" }
-];
 
 const unitTest = {
   title: "Unit Test",
@@ -207,8 +202,9 @@ function formatMockTimer(totalSeconds) {
 }
 
 function MockTestView() {
-  const [chapterId, setChapterId] = useState(mockTestChapters[0].id);
-  const [chapterTitle, setChapterTitle] = useState(mockTestChapters[0].title);
+  const [mockTestChapters, setMockTestChapters] = useState([]);
+  const [chapterId, setChapterId] = useState("");
+  const [chapterTitle, setChapterTitle] = useState("Select Chapter");
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
   const [reviewed, setReviewed] = useState([]);
@@ -216,13 +212,14 @@ function MockTestView() {
   const [timeLeft, setTimeLeft] = useState(MOCK_TEST_DURATION_SECONDS);
   const [phase, setPhase] = useState("setup");
   const [loading, setLoading] = useState(false);
+  const [loadingChapters, setLoadingChapters] = useState(true);
   const [error, setError] = useState("");
   const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
   const [autoSubmitted, setAutoSubmitted] = useState(false);
 
   const selectedChapter = useMemo(
-    () => mockTestChapters.find((chapter) => chapter.id === Number(chapterId)) || mockTestChapters[0],
-    [chapterId]
+    () => mockTestChapters.find((chapter) => String(chapter.chapter_id) === String(chapterId)) || null,
+    [chapterId, mockTestChapters]
   );
   const answeredCount = Object.keys(answers).length;
   const score = useMemo(
@@ -230,6 +227,48 @@ function MockTestView() {
     [answers, questions]
   );
   const activeQuestion = questions[currentQuestion];
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMockTestChapters() {
+      setLoadingChapters(true);
+      setError("");
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/quiz-chapters`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load mock-test chapters.");
+        }
+
+        const availableChapters = Array.isArray(data.chapters) ? data.chapters : [];
+        if (!cancelled) {
+          setMockTestChapters(availableChapters);
+          const firstChapter = availableChapters[0];
+          setChapterId(firstChapter ? String(firstChapter.chapter_id) : "");
+          setChapterTitle(firstChapter?.content_title || "Select Chapter");
+          if (availableChapters.length === 0) {
+            setError("No linked chapter content is available for mock-test generation.");
+          }
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || "Unable to load mock-test chapters.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingChapters(false);
+        }
+      }
+    }
+
+    loadMockTestChapters();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (phase !== "testing") return undefined;
@@ -246,6 +285,11 @@ function MockTestView() {
   }, [phase, timeLeft]);
 
   async function generateMockTest() {
+    if (!selectedChapter) {
+      setError("Select a chapter before generating the mock test.");
+      return;
+    }
+
     setLoading(true);
     setError("");
     setQuestions([]);
@@ -274,7 +318,7 @@ function MockTestView() {
       }
 
       setQuestions(generatedQuestions);
-      setChapterTitle(data.chapter_title || selectedChapter.title);
+      setChapterTitle(data.chapter_title || selectedChapter.content_title);
       setTimeLeft(Number(data.duration_minutes || 15) * 60);
       setPhase("testing");
     } catch (generationError) {
@@ -342,16 +386,17 @@ function MockTestView() {
             <AppSelect
               value={chapterId}
               options={mockTestChapters.map((chapter) => ({
-                value: chapter.id,
-                label: `${chapter.subject} - ${chapter.title}`
+                value: chapter.chapter_id,
+                label: chapter.content_title
               }))}
               onChange={(value) => {
-                const nextId = Number(value);
-                setChapterId(nextId);
-                setChapterTitle(mockTestChapters.find((chapter) => chapter.id === nextId)?.title || "Chapter");
+                const nextChapter = mockTestChapters.find((chapter) => String(chapter.chapter_id) === String(value));
+                setChapterId(String(value));
+                setChapterTitle(nextChapter?.content_title || "Select Chapter");
                 setError("");
               }}
-              disabled={loading}
+              disabled={loading || loadingChapters || mockTestChapters.length === 0}
+              placeholder={loadingChapters ? "Loading Chapters..." : "Select Chapter"}
               ariaLabel="Select mock test chapter"
               searchable
             />
@@ -359,7 +404,7 @@ function MockTestView() {
 
           {error && <div className="learning-status error" role="alert">{error}</div>}
           <div className="quiz-submit-row">
-            <button className="primary-button" type="button" onClick={generateMockTest} disabled={loading}>
+            <button className="primary-button" type="button" onClick={generateMockTest} disabled={loading || loadingChapters || !selectedChapter}>
               {loading ? "AI is generating 5 questions..." : "Generate Mock Test"}
             </button>
           </div>

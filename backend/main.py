@@ -89,6 +89,14 @@ class MockTestGenerationInput(BaseModel):
     chapter_id: int = Field(..., ge=1)
 
 
+class QuizResultInput(BaseModel):
+    student_email: str = Field(..., min_length=3, max_length=150)
+    chapter_id: int = Field(..., ge=1)
+    score: float = Field(..., ge=0)
+    total_marks: float = Field(..., gt=0)
+    percentage: float = Field(..., ge=0, le=100)
+
+
 class TextTranslationBatchInput(BaseModel):
     texts: list[str] = Field(..., min_length=1, max_length=80)
     target_language: str = Field(..., min_length=2, max_length=80)
@@ -690,6 +698,43 @@ def get_chapter_content_list(
     return {"chapters": chapters}
 
 
+@app.get("/quiz-chapters")
+def get_quiz_chapters():
+    query = """
+        SELECT DISTINCT ON (content.chapter_id)
+            content.chapter_id,
+            COALESCE(
+                NULLIF(BTRIM(content.content_title), ''),
+                NULLIF(BTRIM(chapter.chapter_name), ''),
+                'Chapter'
+            ) AS content_title
+        FROM sgs_chapter_content content
+        LEFT JOIN sgs_chapter_master chapter
+          ON chapter.chapter_id = content.chapter_id
+        WHERE content.chapter_id IS NOT NULL
+          AND content.full_text_content IS NOT NULL
+          AND BTRIM(content.full_text_content) <> ''
+          AND COALESCE(content.is_active, true) = true
+          AND COALESCE(content.record_status, 'Active') = 'Active'
+        ORDER BY content.chapter_id, content.chapter_content_id DESC;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query)
+                chapters = cursor.fetchall()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Chapter tables are missing. Confirm chapter master and content tables exist.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch quiz chapters.") from error
+
+    return {"chapters": chapters}
+
+
 @app.get("/notices")
 def get_notices(
     student_class: str | None = Query(default=None, min_length=1),
@@ -1010,6 +1055,86 @@ def generate_ai_quiz(payload: QuizGenerationInput):
     }
 
 
+@app.post("/quiz-results")
+def save_quiz_result(payload: QuizResultInput):
+    try:
+        student = fetch_current_student_record(payload.student_email)
+
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT subject_id
+                    FROM sgs_chapter_content
+                    WHERE chapter_id = %s
+                    ORDER BY chapter_content_id DESC
+                    LIMIT 1;
+                    """,
+                    (payload.chapter_id,),
+                )
+                chapter = cursor.fetchone()
+                if chapter is None:
+                    raise HTTPException(status_code=404, detail="Chapter content not found.")
+
+                cursor.execute(
+                    """
+                    SELECT COALESCE(MAX(attempt_count), 0) + 1 AS next_attempt
+                    FROM sgs_quiz_response
+                    WHERE student_id = %s
+                      AND chapter_id = %s
+                      AND COALESCE(record_status, 'Active') = 'Active';
+                    """,
+                    (student["student_id"], payload.chapter_id),
+                )
+                attempt = cursor.fetchone()
+                attempt_count = int(attempt["next_attempt"] or 1)
+
+                cursor.execute(
+                    """
+                    INSERT INTO sgs_quiz_response (
+                        student_id,
+                        score,
+                        completed_flag,
+                        created_user_id,
+                        record_status,
+                        version_no,
+                        subject_id,
+                        chapter_id,
+                        total_marks,
+                        percentage,
+                        attempt_count,
+                        completed_at
+                    )
+                    VALUES (%s, %s, true, %s, 'Active', 1, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    RETURNING response_id, student_id, chapter_id, score, total_marks,
+                              percentage, attempt_count, completed_flag, completed_at;
+                    """,
+                    (
+                        student["student_id"],
+                        payload.score,
+                        str(student["student_id"]),
+                        chapter.get("subject_id"),
+                        payload.chapter_id,
+                        payload.total_marks,
+                        payload.percentage,
+                        attempt_count,
+                    ),
+                )
+                saved_result = cursor.fetchone()
+            connection.commit()
+    except HTTPException:
+        raise
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Quiz response or chapter content table is missing.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to save quiz result.") from error
+
+    return {"saved": True, "result": saved_result}
+
+
 @app.post("/ai/generate-mock-test")
 def generate_ai_mock_test(payload: MockTestGenerationInput):
     question_count = 5
@@ -1196,7 +1321,7 @@ def calculate_performance_summary(student_id: int) -> dict:
                 WHERE student_id = %(student_id)s
             ) AS assignment_marks,
             (
-                SELECT AVG(score)
+                SELECT AVG(COALESCE(percentage, score))
                 FROM sgs_quiz_response
                 WHERE student_id = %(student_id)s
                   AND COALESCE(completed_flag, true) = true
