@@ -635,7 +635,7 @@ def get_classes():
 
 @app.get("/subjects")
 def get_subjects(
-    class_id: int = Query(..., ge=1),
+    class_id: int | None = Query(default=None, ge=1),
 ):
     query = """
         SELECT DISTINCT
@@ -643,8 +643,7 @@ def get_subjects(
             subject_name,
             subject_code
         FROM sgs_subject_master
-        WHERE class_id = %s
-          AND subject_id IS NOT NULL
+        WHERE subject_id IS NOT NULL
           AND NULLIF(BTRIM(subject_name), '') IS NOT NULL
         ORDER BY subject_name;
     """
@@ -652,7 +651,7 @@ def get_subjects(
     try:
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (class_id,))
+                cursor.execute(query)
                 subjects = cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
@@ -674,12 +673,24 @@ def get_chapter_content_list(
         SELECT
             chapter_content_id,
             content_title
-        FROM sgs_chapter_content
-        WHERE class_id = %s
-          AND subject_id = %s
-          AND chapter_content_id IS NOT NULL
-          AND NULLIF(BTRIM(content_title), '') IS NOT NULL
-        ORDER BY chapter_content_id;
+        FROM (
+            SELECT DISTINCT ON (content.chapter_id)
+                content.chapter_content_id,
+                content.content_title,
+                chapter.chapter_no
+            FROM sgs_chapter_content content
+            LEFT JOIN sgs_chapter_master chapter
+              ON chapter.chapter_id = content.chapter_id
+            WHERE content.class_id = %s
+              AND content.subject_id = %s
+              AND content.chapter_content_id IS NOT NULL
+              AND NULLIF(BTRIM(content.content_title), '') IS NOT NULL
+              AND NULLIF(BTRIM(content.full_text_content), '') IS NOT NULL
+              AND COALESCE(content.is_active, true) = true
+              AND LOWER(COALESCE(content.record_status, 'Active')) = 'active'
+            ORDER BY content.chapter_id, content.chapter_content_id DESC
+        ) available_chapters
+        ORDER BY chapter_no NULLS LAST, chapter_content_id;
     """
 
     try:
