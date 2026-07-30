@@ -2057,6 +2057,18 @@ button {
   background: #fbfdff;
 }
 
+.pdf-document-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 180px);
+  min-height: 720px;
+  margin-top: 16px;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  border-radius: 8px;
+  background: #101a3d;
+}
+
+
 .pdf-page {
   max-width: 780px;
   margin: 0 auto;
