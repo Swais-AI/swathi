@@ -4,10 +4,13 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 import psycopg
+import boto3
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -122,6 +125,70 @@ def get_database_url() -> str:
 def get_connection():
     with psycopg.connect(get_database_url()) as connection:
         yield connection
+
+
+STUDY_MATERIAL_ENTITY_TYPE = "CHAPTER_STUDY_MATERIAL"
+
+
+def get_s3_client():
+    region = (os.getenv("AWS_REGION") or "").strip()
+    access_key = (os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
+    secret_key = (os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip()
+
+    if not region or not access_key or not secret_key:
+        raise HTTPException(
+            status_code=500,
+            detail="AWS S3 credentials are not fully configured in backend/.env.",
+        )
+
+    return boto3.client(
+        "s3",
+        region_name=region,
+        endpoint_url=f"https://s3.{region}.amazonaws.com",
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        aws_session_token=(os.getenv("AWS_SESSION_TOKEN") or "").strip() or None,
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "virtual"},
+        ),
+    )
+
+
+def parse_s3_location(file_url: str) -> tuple[str, str]:
+    parsed = urlparse(file_url)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.lstrip("/"):
+        raise ValueError("File metadata must contain an s3://bucket/object-key URL.")
+
+    return parsed.netloc, parsed.path.lstrip("/")
+
+
+def create_material_urls(file_url: str, file_name: str) -> tuple[str, str]:
+    bucket, object_key = parse_s3_location(file_url)
+    configured_bucket = (os.getenv("AWS_S3_BUCKET_NAME") or "").strip()
+    if configured_bucket and bucket != configured_bucket:
+        raise ValueError("File metadata points to a different S3 bucket.")
+
+    expires_in = int(os.getenv("AWS_S3_PRESIGNED_URL_EXPIRY", "3600"))
+    expires_in = max(60, min(expires_in, 604800))
+    safe_name = file_name.replace('"', "").replace("\r", "").replace("\n", "")
+    client = get_s3_client()
+    common = {
+        "Bucket": bucket,
+        "Key": object_key,
+        "ResponseContentType": "application/pdf",
+    }
+    view_url = client.generate_presigned_url(
+        "get_object",
+        Params={**common, "ResponseContentDisposition": f'inline; filename="{safe_name}"'},
+        ExpiresIn=expires_in,
+    )
+    download_url = client.generate_presigned_url(
+        "get_object",
+        Params={**common, "ResponseContentDisposition": f'attachment; filename="{safe_name}"'},
+        ExpiresIn=expires_in,
+    )
+    return view_url, download_url
 
 
 def fetch_current_student_record(student_email: str | None = None) -> dict:
@@ -469,6 +536,73 @@ def get_chapter_content_list(
         raise HTTPException(status_code=500, detail="Unable to fetch chapters.") from error
 
     return {"chapters": chapters}
+
+
+@app.get("/study-materials")
+def get_study_materials(
+    chapter_content_id: int = Query(..., ge=1),
+):
+    query = """
+        SELECT
+            metadata.file_id,
+            metadata.file_name,
+            metadata.file_url,
+            metadata.created_at,
+            content.chapter_id,
+            content.content_title
+        FROM sgs_chapter_content content
+        INNER JOIN sgs_file_storage_metadata metadata
+          ON metadata.entity_id = content.chapter_id
+         AND UPPER(BTRIM(metadata.entity_type)) = %s
+        WHERE content.chapter_content_id = %s
+          AND LOWER(COALESCE(metadata.record_status, 'Active')) = 'active'
+        ORDER BY metadata.created_at DESC NULLS LAST, metadata.file_id DESC;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    query,
+                    (STUDY_MATERIAL_ENTITY_TYPE, chapter_content_id),
+                )
+                rows = cursor.fetchall()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="File metadata table is missing. Confirm sgs_file_storage_metadata exists.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch study materials.") from error
+
+    materials = []
+    try:
+        for row in rows:
+            view_url, download_url = create_material_urls(
+                row["file_url"],
+                row["file_name"],
+            )
+            materials.append(
+                {
+                    "file_id": row["file_id"],
+                    "chapter_id": row["chapter_id"],
+                    "content_title": row["content_title"],
+                    "file_name": row["file_name"],
+                    "content_type": "PDF",
+                    "view_url": view_url,
+                    "download_url": download_url,
+                    "created_at": row["created_at"],
+                }
+            )
+    except ValueError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    except (BotoCoreError, ClientError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to create secure S3 links for the study material.",
+        ) from error
+
+    return {"materials": materials}
 
 
 @app.get("/quiz-chapters")
