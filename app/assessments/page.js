@@ -5,6 +5,7 @@ import { getApiBaseUrl } from "../api-base-url";
 import AppSelect from "../app-select";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
+import StudentAnalysisView from "./student-analysis-view";
 
 const API_BASE_URL = getApiBaseUrl();
 const MOCK_TEST_DURATION_SECONDS = 15 * 60;
@@ -30,20 +31,6 @@ const learners = [
   ["Diya Patel", "78%", "yellow"],
   ["Rohan Verma", "85%", "green"],
   ["Meera Singh", "90%", "green"]
-];
-
-const testRows = [
-  ["Quiz 1", ["Math: 97%", "Physics: 80%", "Chem: 88%"]],
-  ["Project 1", ["Math: 95%", "Physics: 80%", "Chem: 82%"]],
-  ["Unit Test 1", ["Math: 97%", "Physics: 80%", "Chem: 80%"]],
-  ["Presentation 1", ["Math: 78%", "Physics: 85%", "Chem: 70%"]]
-];
-
-const focusRows = [
-  ["Algebra", "72%", "92%", "blue"],
-  ["Mechanics", "58%", "86%", "orange"],
-  ["Organic Chemistry", "64%", "82%", "green"],
-  ["Essay Writing", "66%", "84%", "green"]
 ];
 
 function RingChart({ label = "365", caption = "Total Students" }) {
@@ -147,38 +134,6 @@ function TeacherRemarkView() {
           <div className="learner-list">{learners.map(([name, score, tone]) => <div className="learner-row" key={name}><i className={tone} /><div className="tiny-avatar">{name.split(" ").map((part) => part[0]).join("")}</div><span>{name}</span><MiniBars /><strong>{score}</strong></div>)}</div>
         </article>
         <article className="analysis-card"><h3>Growth Trend</h3><LineChart labels={["Jan", "Feb", "Mar", "Apr", "May", "Jun"]} values={[40, 210, 190, 340, 260, 420, 660]} /></article>
-      </div>
-    </section>
-  );
-}
-
-function StudentAnalysisView() {
-  return (
-    <section className="assessment-dashboard student-analysis-view">
-      <div className="assessment-dashboard-head">
-        <h2>Student Self-Assessment: Academic Year 2026</h2>
-        <div className="tiny-avatar">AS</div>
-      </div>
-      <div className="analysis-grid">
-        <article className="analysis-card performance-card">
-          <h3>Final Subject Performance</h3>
-          <p>(Average of all Tests)</p>
-          <div className="performance-row">
-            <RingChart label="88%" caption="Overall Average" />
-            <div className="legend-list subjects">{["Math", "Physics", "Chemistry", "Biology"].map((item) => <span key={item}>{item}</span>)}</div>
-          </div>
-        </article>
-        <article className="analysis-card"><h3>Test Result Timeline</h3><LineChart labels={["Quarter 1", "Mid-Term", "Quarter 2", "Final Exam"]} values={[78, 80, 93, 94]} /></article>
-        <article className="analysis-card">
-          <h3>Detailed Test Performance by Subject</h3>
-          <div className="test-performance-list">{testRows.map(([name, scores]) => <div className="test-row" key={name}><strong>{name}</strong><span>{scores.join("  |  ")}</span></div>)}</div>
-        </article>
-        <article className="analysis-card"><h3>Study Subject Distribution Heatmap</h3><Heatmap compact /></article>
-        <article className="analysis-card">
-          <h3>Focus Area Improvements</h3>
-          <div className="focus-list">{focusRows.map(([name, before, after, tone]) => <div className="focus-row" key={name}><strong>{name}</strong><div><span style={{ width: before }} /><i className={tone} style={{ width: after }} /></div></div>)}</div>
-        </article>
-        <article className="analysis-card"><h3>Overall Growth Trend</h3><LineChart labels={["Quarter 1", "Mid-Term", "Quarter 2", "Final Exam"]} values={[20, 64, 85, 116]} dashed /></article>
       </div>
     </section>
   );
