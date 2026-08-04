@@ -20,6 +20,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from ai_learning_path_service import classify_performance, classify_reader, get_learning_path_generator
+from student_analysis import create_student_analysis_router
 from utils.ai_tracker import log_ai_usage
 
 
@@ -259,6 +260,9 @@ def fetch_student_email(student_id: int) -> str | None:
                 return row[0] if row else None
     except psycopg.Error:
         return None
+
+
+app.include_router(create_student_analysis_router(get_connection, fetch_current_student_record))
 
 
 def extract_json_object(content: str) -> dict:
