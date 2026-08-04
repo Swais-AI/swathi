@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getApiBaseUrl } from "../api-base-url";
+import { getLoggedInUserEmail } from "../login-session";
 import AppSelect from "../app-select";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
@@ -256,10 +257,11 @@ function MockTestView() {
     setAutoSubmitted(false);
 
     try {
+      const userEmail = await getLoggedInUserEmail();
       const response = await fetchWithTimeout(`${API_BASE_URL}/ai/generate-mock-test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chapter_id: Number(chapterId) })
+        body: JSON.stringify({ chapter_id: Number(chapterId), user_email: userEmail })
       });
       const data = await response.json().catch(() => ({}));
 
