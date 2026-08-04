@@ -20,6 +20,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from ai_learning_path_service import classify_performance, classify_reader, get_learning_path_generator
+from student_analysis import create_student_analysis_router
 
 
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
@@ -232,6 +233,9 @@ def fetch_current_student_record(student_email: str | None = None) -> dict:
         raise HTTPException(status_code=404, detail=detail)
 
     return student
+
+
+app.include_router(create_student_analysis_router(get_connection, fetch_current_student_record))
 
 
 def extract_json_object(content: str) -> dict:
