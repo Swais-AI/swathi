@@ -20,6 +20,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from ai_learning_path_service import classify_performance, classify_reader, get_learning_path_generator
+from utils.ai_tracker import log_ai_usage
 
 
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
@@ -86,10 +87,12 @@ class StudyContentGenerationInput(BaseModel):
 class QuizGenerationInput(BaseModel):
     chapter_id: int = Field(..., ge=1)
     question_count: int = Field(default=5, ge=3, le=10)
+    user_email: str | None = Field(default=None, min_length=3, max_length=150)
 
 
 class MockTestGenerationInput(BaseModel):
     chapter_id: int = Field(..., ge=1)
+    user_email: str | None = Field(default=None, min_length=3, max_length=150)
 
 
 class QuizResultInput(BaseModel):
@@ -104,12 +107,14 @@ class TextTranslationBatchInput(BaseModel):
     texts: list[str] = Field(..., min_length=1, max_length=80)
     target_language: str = Field(..., min_length=2, max_length=80)
     source_language: str | None = Field(default=None, max_length=80)
+    user_email: str | None = Field(default=None, min_length=3, max_length=150)
 
 
 class TextTranslationInput(BaseModel):
     text: str = Field(..., min_length=1, max_length=12000)
     target_language: str = Field(..., min_length=2, max_length=80)
     source_language: str | None = Field(default=None, max_length=80)
+    user_email: str | None = Field(default=None, min_length=3, max_length=150)
 
 
 class AssignmentSubmissionInput(BaseModel):
@@ -234,6 +239,28 @@ def fetch_current_student_record(student_email: str | None = None) -> dict:
     return student
 
 
+def fetch_student_email(student_id: int) -> str | None:
+    """Resolve an active student's email for AI usage attribution."""
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT NULLIF(BTRIM(student_email), '')
+                    FROM sgs_student_master
+                    WHERE student_id = %s
+                      AND COALESCE(record_status, 'Active') = 'Active'
+                      AND COALESCE(is_active, true) = true
+                    LIMIT 1;
+                    """,
+                    (student_id,),
+                )
+                row = cursor.fetchone()
+                return row[0] if row else None
+    except psycopg.Error:
+        return None
+
+
 def extract_json_object(content: str) -> dict:
     cleaned = content.strip()
 
@@ -257,7 +284,14 @@ def extract_json_object(content: str) -> dict:
     return parsed
 
 
-def gemini_generate_json(prompt: str, max_output_tokens: int = 4096) -> dict:
+def gemini_generate_json(
+    prompt: str,
+    max_output_tokens: int = 4096,
+    *,
+    module_name: str,
+    feature_used: str,
+    user_email: str | None = None,
+) -> dict:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
@@ -314,7 +348,14 @@ def gemini_generate_json(prompt: str, max_output_tokens: int = 4096) -> dict:
         try:
             parts = body["candidates"][0]["content"]["parts"]
             content = "\n".join(part.get("text", "") for part in parts).strip()
-            return extract_json_object(content)
+            parsed_content = extract_json_object(content)
+            log_ai_usage(
+                module_name=module_name,
+                feature_used=feature_used,
+                user_email=user_email,
+                response=body,
+            )
+            return parsed_content
         except (KeyError, IndexError, json.JSONDecodeError, ValueError):
             errors.append(f"{model_name}: Gemini returned an invalid JSON response.")
             continue
@@ -353,7 +394,10 @@ def get_due_status(due_date_value) -> dict:
     return {"label": "Later", "priority": "low", "days_left": days_left, "is_countable": False}
 
 
-def apply_ai_assignment_messages(assignments: list[dict]) -> list[dict]:
+def apply_ai_assignment_messages(
+    assignments: list[dict],
+    user_email: str | None = None,
+) -> list[dict]:
     if not assignments:
         return assignments
 
@@ -380,7 +424,13 @@ def apply_ai_assignment_messages(assignments: list[dict]) -> list[dict]:
         {json.dumps(assignments, default=str, ensure_ascii=False)}
     """
 
-    generated = gemini_generate_json(prompt, max_output_tokens=2048)
+    generated = gemini_generate_json(
+        prompt,
+        max_output_tokens=2048,
+        module_name="Assignments",
+        feature_used="Assignment Due Alert Generation",
+        user_email=user_email,
+    )
 
     messages = {}
     for item in generated.get("alerts", []):
@@ -1036,7 +1086,7 @@ def get_notifications():
 
     assignment_alert_error = None
     try:
-        assignments = apply_ai_assignment_messages(assignments)
+        assignments = apply_ai_assignment_messages(assignments, student.get("student_email"))
     except RuntimeError as error:
         assignments = []
         assignment_alert_error = str(error)
@@ -1186,7 +1236,12 @@ def generate_ai_quiz(payload: QuizGenerationInput):
     """
 
     try:
-        quiz_data = gemini_generate_json(prompt)
+        quiz_data = gemini_generate_json(
+            prompt,
+            module_name="Quizzes",
+            feature_used="Quiz Generation",
+            user_email=payload.user_email,
+        )
         questions = normalize_quiz_questions(quiz_data.get("quiz"))
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
@@ -1314,7 +1369,12 @@ def generate_ai_mock_test(payload: MockTestGenerationInput):
     """
 
     try:
-        quiz_data = gemini_generate_json(prompt)
+        quiz_data = gemini_generate_json(
+            prompt,
+            module_name="Assessments",
+            feature_used="Mock Test Generation",
+            user_email=payload.user_email,
+        )
         questions = normalize_quiz_questions(quiz_data.get("quiz"))
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
@@ -1361,7 +1421,13 @@ def translate_text(payload: TextTranslationInput):
     """
 
     try:
-        translation_data = gemini_generate_json(prompt, max_output_tokens=3072)
+        translation_data = gemini_generate_json(
+            prompt,
+            max_output_tokens=3072,
+            module_name="AI Translator",
+            feature_used="Text Translation",
+            user_email=payload.user_email,
+        )
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
@@ -1402,7 +1468,13 @@ def translate_text_batch(payload: TextTranslationBatchInput):
     """
 
     try:
-        translation_data = gemini_generate_json(prompt, max_output_tokens=4096)
+        translation_data = gemini_generate_json(
+            prompt,
+            max_output_tokens=4096,
+            module_name="AI Translator",
+            feature_used="Page Translation",
+            user_email=payload.user_email,
+        )
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
@@ -1439,6 +1511,7 @@ def build_learning_profile_payload(profile: LearningProfileInput):
             profile.chapter_title,
             classification,
             metrics,
+            user_email=fetch_student_email(profile.student_id),
         )
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
@@ -1535,6 +1608,7 @@ def generate_overall_learning_path(payload: PerformanceLearningPathInput):
             "Overall Performance",
             classification,
             metrics,
+            user_email=fetch_student_email(payload.student_id),
         )
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
@@ -1608,7 +1682,13 @@ def generate_study_content(payload: StudyContentGenerationInput):
     """
 
     try:
-        generated_content = gemini_generate_json(prompt, max_output_tokens=4096)
+        generated_content = gemini_generate_json(
+            prompt,
+            max_output_tokens=4096,
+            module_name="AI Learning Path",
+            feature_used="Study Content Generation",
+            user_email=fetch_student_email(payload.student_id),
+        )
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
