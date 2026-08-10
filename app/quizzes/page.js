@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
+import { getLoggedInUserEmail } from "../login-session";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
@@ -117,12 +118,14 @@ export default function QuizzesPage() {
 
     try {
       await waitBeforeAiRequest();
+      const userEmail = await getLoggedInUserEmail();
       const response = await fetchWithTimeout(`${API_BASE_URL}/ai/generate-quiz`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chapter_id: Number(chapterId),
-          question_count: 5
+          question_count: 5,
+          user_email: userEmail
         })
       });
       const data = await response.json().catch(() => ({}));

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { getApiBaseUrl } from "./api-base-url";
+import { getLoggedInUserEmail } from "./login-session";
 import { useLanguage } from "./i18n";
 
 const API_BASE_URL = getApiBaseUrl();
@@ -55,13 +56,15 @@ function restoreEnglish() {
 }
 
 async function translateChunk(texts, targetLanguage) {
+  const userEmail = await getLoggedInUserEmail();
   const response = await fetch(`${API_BASE_URL}/ai/translate-batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       texts,
       source_language: "English",
-      target_language: targetLanguage
+      target_language: targetLanguage,
+      user_email: userEmail
     })
   });
   const data = await response.json().catch(() => ({}));
