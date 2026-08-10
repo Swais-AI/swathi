@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import mimetypes
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -187,11 +188,12 @@ def create_material_urls(file_url: str, file_name: str) -> tuple[str, str]:
     expires_in = int(os.getenv("AWS_S3_PRESIGNED_URL_EXPIRY", "3600"))
     expires_in = max(60, min(expires_in, 604800))
     safe_name = file_name.replace('"', "").replace("\r", "").replace("\n", "")
+    response_content_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
     client = get_s3_client()
     common = {
         "Bucket": bucket,
         "Key": object_key,
-        "ResponseContentType": "application/pdf",
+        "ResponseContentType": response_content_type,
     }
     view_url = client.generate_presigned_url(
         "get_object",
@@ -295,6 +297,7 @@ def gemini_generate_json(
     module_name: str,
     feature_used: str,
     user_email: str | None = None,
+    resource_parts: list[dict] | None = None,
 ) -> dict:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -314,7 +317,7 @@ def gemini_generate_json(
         "contents": [
             {
                 "role": "user",
-                "parts": [{"text": prompt}],
+                "parts": [*(resource_parts or []), {"text": prompt}],
             }
         ],
         "generationConfig": {
@@ -566,6 +569,27 @@ def get_current_assignments():
                         (student["student_id"],),
                     )
                     assignments = cursor.fetchall()
+
+                attachment_rows = []
+                assignment_ids = [assignment["assignment_id"] for assignment in assignments]
+                if assignment_ids:
+                    cursor.execute(
+                        """
+                        SELECT
+                            file_id,
+                            entity_id AS assignment_id,
+                            file_name,
+                            file_url,
+                            created_at
+                        FROM sgs_file_storage_metadata
+                        WHERE UPPER(BTRIM(entity_type)) = 'ASSIGNMENT_ATTACHMENT'
+                          AND entity_id = ANY(%s)
+                          AND LOWER(COALESCE(record_status, 'Active')) = 'active'
+                        ORDER BY created_at DESC NULLS LAST, file_id DESC;
+                        """,
+                        (assignment_ids,),
+                    )
+                    attachment_rows = cursor.fetchall()
     except psycopg.errors.UndefinedColumn as error:
         raise HTTPException(
             status_code=500,
@@ -579,6 +603,27 @@ def get_current_assignments():
     except psycopg.Error as error:
         raise HTTPException(status_code=500, detail="Unable to fetch assignments.") from error
 
+    attachments_by_assignment: dict[int, list[dict]] = {}
+    try:
+        for attachment in attachment_rows:
+            view_url, download_url = create_material_urls(
+                attachment["file_url"],
+                attachment["file_name"],
+            )
+            attachments_by_assignment.setdefault(attachment["assignment_id"], []).append(
+                {
+                    "file_id": attachment["file_id"],
+                    "file_name": attachment["file_name"],
+                    "view_url": view_url,
+                    "download_url": download_url,
+                    "created_at": attachment["created_at"],
+                }
+            )
+    except ValueError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    except (BotoCoreError, ClientError) as error:
+        raise HTTPException(status_code=502, detail="Unable to create assignment attachment links.") from error
+
     normalized_assignments = []
     for index, assignment in enumerate(assignments, start=1):
         submitted = bool(assignment.get("submitted_at") or assignment.get("submitted_file_name"))
@@ -591,6 +636,7 @@ def get_current_assignments():
                 "due_date": assignment.get("due_date"),
                 "class_id": assignment.get("class_id"),
                 "subject_id": assignment.get("subject_id"),
+                "attachments": attachments_by_assignment.get(assignment["assignment_id"], []),
                 "status": "Submitted" if submitted else (assignment.get("submission_status") or "Not Started"),
                 "action": "View" if submitted else "Start",
                 "submitted_at": assignment.get("submitted_at"),
@@ -911,8 +957,17 @@ def get_quiz_chapters():
         LEFT JOIN sgs_chapter_master chapter
           ON chapter.chapter_id = content.chapter_id
         WHERE content.chapter_id IS NOT NULL
-          AND content.full_text_content IS NOT NULL
-          AND BTRIM(content.full_text_content) <> ''
+          AND (
+            NULLIF(BTRIM(content.full_text_content), '') IS NOT NULL
+            OR EXISTS (
+                SELECT 1
+                FROM sgs_file_storage_metadata metadata
+                WHERE metadata.entity_id = content.chapter_id
+                  AND UPPER(BTRIM(metadata.entity_type)) = 'CHAPTER_STUDY_MATERIAL'
+                  AND LOWER(COALESCE(metadata.record_status, 'Active')) = 'active'
+                  AND LOWER(metadata.file_name) LIKE '%.pdf'
+            )
+          )
           AND COALESCE(content.is_active, true) = true
           AND COALESCE(content.record_status, 'Active') = 'Active'
         ORDER BY content.chapter_id, content.chapter_content_id DESC;
@@ -1177,13 +1232,11 @@ def fetch_chapter_for_quiz(chapter_id: int) -> dict:
         SELECT
             content.chapter_id,
             COALESCE(NULLIF(BTRIM(content.content_title), ''), chapter.chapter_name, 'Chapter') AS chapter_title,
-            content.full_text_content
+            COALESCE(content.full_text_content, '') AS full_text_content
         FROM sgs_chapter_content content
         LEFT JOIN sgs_chapter_master chapter
           ON chapter.chapter_id = content.chapter_id
         WHERE content.chapter_id = %s
-          AND content.full_text_content IS NOT NULL
-          AND BTRIM(content.full_text_content) <> ''
           AND COALESCE(content.is_active, true) = true
           AND COALESCE(content.record_status, 'Active') = 'Active'
         ORDER BY content.chapter_content_id
@@ -1209,13 +1262,87 @@ def fetch_chapter_for_quiz(chapter_id: int) -> dict:
     return chapter
 
 
+def fetch_quiz_study_material_parts(chapter_id: int) -> tuple[list[dict], list[str]]:
+    """Load a bounded set of chapter PDFs for Gemini's native document input."""
+    query = """
+        SELECT file_name, file_url
+        FROM sgs_file_storage_metadata
+        WHERE entity_id = %s
+          AND UPPER(BTRIM(entity_type)) = %s
+          AND LOWER(COALESCE(record_status, 'Active')) = 'active'
+          AND LOWER(file_name) LIKE '%%.pdf'
+        ORDER BY created_at DESC NULLS LAST, file_id DESC
+        LIMIT 3;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query, (chapter_id, STUDY_MATERIAL_ENTITY_TYPE))
+                rows = cursor.fetchall()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="File metadata table is missing. Confirm sgs_file_storage_metadata exists.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch quiz study materials.") from error
+
+    parts: list[dict] = []
+    source_files: list[str] = []
+    total_bytes = 0
+    max_total_bytes = 18 * 1024 * 1024
+
+    try:
+        client = get_s3_client()
+        configured_bucket = (os.getenv("AWS_S3_BUCKET_NAME") or "").strip()
+        for row in rows:
+            bucket, object_key = parse_s3_location(row["file_url"])
+            if configured_bucket and bucket != configured_bucket:
+                raise ValueError("Study material metadata points to a different S3 bucket.")
+            response = client.get_object(Bucket=bucket, Key=object_key)
+            file_bytes = response["Body"].read(max_total_bytes - total_bytes + 1)
+            if not file_bytes or total_bytes + len(file_bytes) > max_total_bytes:
+                continue
+
+            total_bytes += len(file_bytes)
+            parts.append(
+                {
+                    "inline_data": {
+                        "mime_type": "application/pdf",
+                        "data": base64.b64encode(file_bytes).decode("ascii"),
+                    }
+                }
+            )
+            source_files.append(row["file_name"])
+    except ValueError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    except (BotoCoreError, ClientError) as error:
+        raise HTTPException(status_code=502, detail="Unable to read quiz study materials from S3.") from error
+
+    return parts, source_files
+
+
 @app.post("/ai/generate-quiz")
 def generate_ai_quiz(payload: QuizGenerationInput):
     chapter = fetch_chapter_for_quiz(payload.chapter_id)
+    resource_parts, source_files = fetch_quiz_study_material_parts(payload.chapter_id)
     content = str(chapter["full_text_content"])[:18000]
+    if not resource_parts and not content.strip():
+        raise HTTPException(status_code=404, detail="No study material is available for this chapter.")
+
+    source_instruction = (
+        "Use the attached PDF study materials as the primary and authoritative source. "
+        "Do not create questions about facts that are not supported by those PDFs."
+        if resource_parts
+        else "Use only the chapter content supplied below."
+    )
     prompt = f"""
         You are an expert school teacher. Generate {payload.question_count} multiple-choice questions
-        from the chapter content below.
+        from the available study resources for this chapter.
+
+        Source rule:
+        {source_instruction}
 
         Return only valid JSON in this exact shape:
         {{
@@ -1233,6 +1360,7 @@ def generate_ai_quiz(payload: QuizGenerationInput):
         - Use 4 options per question.
         - Make only one option correct.
         - Keep questions clear for a school student.
+        - Cover different concepts from the supplied resources and avoid duplicate questions.
         - Do not include markdown or extra text.
 
         Chapter content:
@@ -1245,6 +1373,7 @@ def generate_ai_quiz(payload: QuizGenerationInput):
             module_name="Quizzes",
             feature_used="Quiz Generation",
             user_email=payload.user_email,
+            resource_parts=resource_parts,
         )
         questions = normalize_quiz_questions(quiz_data.get("quiz"))
     except RuntimeError as error:
@@ -1255,6 +1384,8 @@ def generate_ai_quiz(payload: QuizGenerationInput):
     return {
         "chapter_id": chapter["chapter_id"],
         "chapter_title": chapter["chapter_title"],
+        "resource_count": len(source_files),
+        "source_files": source_files,
         "quiz": questions[: payload.question_count],
     }
 

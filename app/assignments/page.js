@@ -224,6 +224,7 @@ export default function AssignmentsPage() {
                     <th>#</th>
                     <th>Assignment Title</th>
                     <th>Due Date</th>
+                    <th>Assignment PDF</th>
                     <th>Status</th>
                     <th>Action</th>
                   </tr>
@@ -239,6 +240,24 @@ export default function AssignmentsPage() {
                         <td>{assignment.number}</td>
                         <td>{assignment.assignment_title}</td>
                         <td>{formatDate(assignment.due_date)}</td>
+                        <td>
+                          {assignment.attachments?.length ? (
+                            <div className="material-actions">
+                              {assignment.attachments.map((attachment) => (
+                                <a
+                                  className="table-action"
+                                  href={attachment.view_url}
+                                  key={attachment.file_id}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title={attachment.file_name}
+                                >
+                                  {attachment.file_name?.toLowerCase().endsWith(".pdf") ? "View PDF" : "View File"}
+                                </a>
+                              ))}
+                            </div>
+                          ) : "-"}
+                        </td>
                         <td><span className={`status-pill ${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span></td>
                         <td>
                           <button className="table-action" type="button" onClick={() => selectAssignment(assignment)}>
@@ -250,7 +269,7 @@ export default function AssignmentsPage() {
                   })}
                   {!loading && assignments.length === 0 && (
                     <tr>
-                      <td colSpan="5">No assignments available.</td>
+                      <td colSpan="6">No assignments available.</td>
                     </tr>
                   )}
                 </tbody>
