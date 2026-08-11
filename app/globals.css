@@ -3138,7 +3138,12 @@ button {
 }
 
 .assignment-view-nav button {
+  appearance: none;
+  border: 0;
+  background: transparent;
   color: #cbd5e1;
+  cursor: pointer;
+  font: inherit;
 }
 
 .assignment-view-nav button.active {

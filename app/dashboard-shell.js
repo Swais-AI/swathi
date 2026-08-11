@@ -170,10 +170,6 @@ function DashboardShellFrame({ children }) {
       <aside className="sidebar">
         <div className="brand">
           <BrandMark />
-          <div>
-            <div className="brand-title">SWAIS</div>
-            <div className="brand-subtitle">Shreeram Vidhyapeeth JV</div>
-          </div>
         </div>
 
         <nav className="nav-list" aria-label="Student navigation">
