@@ -533,42 +533,12 @@ def get_current_assignments():
                       ON r.assignment_id = a.assignment_id
                      AND r.student_id = %s
                      AND COALESCE(r.record_status, 'ACTIVE') = 'ACTIVE'
-                    WHERE a.class_id = %s
-                      AND COALESCE(a.record_status, 'Active') = 'Active'
+                    WHERE COALESCE(a.record_status, 'Active') = 'Active'
                     ORDER BY a.due_date ASC NULLS LAST, a.assignment_id DESC
-                    LIMIT 20;
                     """,
-                    (student["student_id"], student["class_id"]),
+                    (student["student_id"],),
                 )
                 assignments = cursor.fetchall()
-
-                if not assignments:
-                    cursor.execute(
-                        """
-                        SELECT
-                            a.assignment_id,
-                            a.assignment_title,
-                            a.assignment_text,
-                            a.due_date,
-                            a.class_id,
-                            a.subject_id,
-                            r.assignment_result_id,
-                            r.status AS submission_status,
-                            r.submitted_at,
-                            r.submitted_file_name,
-                            r.submitted_file_size
-                        FROM sgs_assignment_master a
-                        LEFT JOIN sgs_assignment_results r
-                          ON r.assignment_id = a.assignment_id
-                         AND r.student_id = %s
-                         AND COALESCE(r.record_status, 'ACTIVE') = 'ACTIVE'
-                        WHERE COALESCE(a.record_status, 'Active') = 'Active'
-                        ORDER BY a.due_date ASC NULLS LAST, a.assignment_id DESC
-                        LIMIT 20;
-                        """,
-                        (student["student_id"],),
-                    )
-                    assignments = cursor.fetchall()
 
                 attachment_rows = []
                 assignment_ids = [assignment["assignment_id"] for assignment in assignments]
