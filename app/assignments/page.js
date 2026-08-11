@@ -68,6 +68,7 @@ function fileToBase64(file) {
 export default function AssignmentsPage() {
   const fileInputRef = useRef(null);
   const uploadCardRef = useRef(null);
+  const [assignmentListTab, setAssignmentListTab] = useState("assignments");
   const [assignments, setAssignments] = useState([]);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -202,6 +203,8 @@ export default function AssignmentsPage() {
     }
   }
 
+  const assignmentsWithMaterials = assignments.filter((assignment) => assignment.attachments?.length);
+
   return (
     <DashboardShell>
       <section className="module-page">
@@ -218,13 +221,21 @@ export default function AssignmentsPage() {
                   {loading ? "Loading" : "View All"}
                 </button>
               </div>
-              <table className="data-table">
+              <nav className="assignment-view-nav assignment-list-subnav" aria-label="Assignment list views">
+                <button className={assignmentListTab === "assignments" ? "active" : ""} type="button" onClick={() => setAssignmentListTab("assignments")}>
+                  All Assignments <span>{assignments.length}</span>
+                </button>
+                <button className={assignmentListTab === "materials" ? "active" : ""} type="button" onClick={() => setAssignmentListTab("materials")}>
+                  Assignment Materials <span>{assignmentsWithMaterials.length}</span>
+                </button>
+              </nav>
+
+              {assignmentListTab === "assignments" && <table className="data-table">
                 <thead>
                   <tr>
                     <th>#</th>
                     <th>Assignment Title</th>
                     <th>Due Date</th>
-                    <th>Assignment PDF</th>
                     <th>Status</th>
                     <th>Action</th>
                   </tr>
@@ -240,24 +251,6 @@ export default function AssignmentsPage() {
                         <td>{assignment.number}</td>
                         <td>{assignment.assignment_title}</td>
                         <td>{formatDate(assignment.due_date)}</td>
-                        <td>
-                          {assignment.attachments?.length ? (
-                            <div className="material-actions">
-                              {assignment.attachments.map((attachment) => (
-                                <a
-                                  className="table-action"
-                                  href={attachment.view_url}
-                                  key={attachment.file_id}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title={attachment.file_name}
-                                >
-                                  {attachment.file_name?.toLowerCase().endsWith(".pdf") ? "View PDF" : "View File"}
-                                </a>
-                              ))}
-                            </div>
-                          ) : "-"}
-                        </td>
                         <td><span className={`status-pill ${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span></td>
                         <td>
                           <button className="table-action" type="button" onClick={() => selectAssignment(assignment)}>
@@ -269,11 +262,29 @@ export default function AssignmentsPage() {
                   })}
                   {!loading && assignments.length === 0 && (
                     <tr>
-                      <td colSpan="6">No assignments available.</td>
+                      <td colSpan="5">No assignments available.</td>
                     </tr>
                   )}
                 </tbody>
-              </table>
+              </table>}
+
+              {assignmentListTab === "materials" && <table className="data-table">
+                <thead><tr><th>Assignment</th><th>File Name</th><th>Action</th></tr></thead>
+                <tbody>
+                  {assignmentsWithMaterials.flatMap((assignment) => assignment.attachments.map((attachment) => (
+                    <tr key={attachment.file_id}>
+                      <td>{assignment.assignment_title}</td>
+                      <td>{attachment.file_name}</td>
+                      <td>
+                        <a className="table-action" href={attachment.view_url} target="_blank" rel="noreferrer">
+                          {attachment.file_name?.toLowerCase().endsWith(".pdf") ? "View PDF" : "View File"}
+                        </a>
+                      </td>
+                    </tr>
+                  )))}
+                  {!loading && assignmentsWithMaterials.length === 0 && <tr><td colSpan="3">No assignment materials available.</td></tr>}
+                </tbody>
+              </table>}
               <div className="tip-box">Tip: Submit your assignments on time to get early feedback and improve your score!</div>
             </article>
 

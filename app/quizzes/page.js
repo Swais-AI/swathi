@@ -141,10 +141,7 @@ export default function QuizzesPage() {
 
       setQuestions(generatedQuestions);
       setChapterTitle(data.chapter_title || selectedChapter.content_title);
-      const resourceMessage = data.resource_count > 0
-        ? ` Generated from ${data.resource_count} uploaded study material${data.resource_count === 1 ? "" : "s"}.`
-        : " Generated from chapter content.";
-      setStatus(`AI quiz generated.${resourceMessage} Select one answer for each question.`);
+      setStatus("AI quiz generated. Select one answer for each question.");
     } catch (quizError) {
       setError(quizError.name === "AbortError" ? "AI quiz generation timed out. Please try again." : quizError.message);
       setStatus("");
