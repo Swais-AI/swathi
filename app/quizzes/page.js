@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
+import { getLoggedInUserEmail } from "../login-session";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
@@ -117,12 +118,14 @@ export default function QuizzesPage() {
 
     try {
       await waitBeforeAiRequest();
+      const userEmail = await getLoggedInUserEmail();
       const response = await fetchWithTimeout(`${API_BASE_URL}/ai/generate-quiz`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chapter_id: Number(chapterId),
-          question_count: 5
+          question_count: 5,
+          user_email: userEmail
         })
       });
       const data = await response.json().catch(() => ({}));
@@ -138,7 +141,10 @@ export default function QuizzesPage() {
 
       setQuestions(generatedQuestions);
       setChapterTitle(data.chapter_title || selectedChapter.content_title);
-      setStatus("AI quiz generated. Select one answer for each question.");
+      const resourceMessage = data.resource_count > 0
+        ? ` Generated from ${data.resource_count} uploaded study material${data.resource_count === 1 ? "" : "s"}.`
+        : " Generated from chapter content.";
+      setStatus(`AI quiz generated.${resourceMessage} Select one answer for each question.`);
     } catch (quizError) {
       setError(quizError.name === "AbortError" ? "AI quiz generation timed out. Please try again." : quizError.message);
       setStatus("");

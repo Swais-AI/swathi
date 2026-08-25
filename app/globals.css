@@ -1317,6 +1317,30 @@ button {
   gap: 14px;
 }
 
+.student-analysis-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.student-analysis-view .assessment-dashboard-head p {
+  margin: 5px 0 0;
+  color: #cbd5e1;
+}
+
+.analysis-state {
+  margin-top: 18px;
+  padding: 24px;
+  border: 1px solid rgba(96, 165, 250, 0.42);
+  border-radius: 10px;
+  background: #101a3d;
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+.analysis-state.error {
+  border-color: rgba(248, 113, 113, 0.65);
+  color: #fecaca;
+}
+
 .analysis-card {
   min-height: 230px;
   padding: 20px;
@@ -1411,6 +1435,28 @@ button {
 .legend-list span:nth-child(3)::before { background: #42ad4b; }
 .legend-list span:nth-child(4)::before { background: #ff7d22; }
 .legend-list.subjects span:nth-child(4)::before { background: #f31f2f; }
+
+.dynamic-subject-legend span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dynamic-subject-legend span::before {
+  display: none;
+}
+
+.dynamic-subject-legend span i {
+  width: 13px;
+  height: 13px;
+  display: inline-block;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.dynamic-subject-legend span strong {
+  margin-left: auto;
+}
 
 .subject-list,
 .learner-list,
@@ -1667,6 +1713,41 @@ button {
 .focus-row i.blue { background: #1266d6; }
 .focus-row i.orange { background: #ff7d22; }
 .focus-row i.green { background: #42ad4b; }
+
+.focus-row.dynamic-focus-row {
+  grid-template-columns: minmax(130px, 180px) 1fr 48px;
+}
+
+.dynamic-focus-row > div:first-child {
+  height: auto;
+  display: grid;
+  gap: 2px;
+  background: transparent;
+}
+
+.dynamic-focus-row > div:first-child span {
+  height: auto;
+  position: static;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.dynamic-focus-row > div:nth-child(2) {
+  height: 14px;
+  overflow: hidden;
+  background: #d9dce2;
+}
+
+.dynamic-focus-row > div:nth-child(2) i {
+  height: 100%;
+  position: absolute;
+  left: 0;
+  border-radius: inherit;
+}
+
+.dynamic-focus-row > strong:last-child {
+  text-align: right;
+}
 
 .assessment-answer-box {
   margin-top: 12px;
@@ -3057,7 +3138,12 @@ button {
 }
 
 .assignment-view-nav button {
+  appearance: none;
+  border: 0;
+  background: transparent;
   color: #cbd5e1;
+  cursor: pointer;
+  font: inherit;
 }
 
 .assignment-view-nav button.active {

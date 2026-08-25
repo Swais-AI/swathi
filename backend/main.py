@@ -23,6 +23,7 @@ from psycopg_pool import PoolTimeout
 
 from ai_learning_path_service import classify_performance, classify_reader, get_learning_path_generator
 from database import close_database_pool, database_connection
+from student_analysis import create_student_analysis_router
 from utils.ai_tracker import log_ai_usage
 
 
@@ -128,13 +129,10 @@ class TextTranslationInput(BaseModel):
 
 class AssignmentSubmissionInput(BaseModel):
     assignment_id: int = Field(..., ge=1)
-    file_name: str | None = Field(default=None, min_length=1, max_length=255)
+    file_name: str = Field(..., min_length=1, max_length=255)
     file_type: str | None = Field(default=None, max_length=160)
-    file_size: int | None = Field(default=None, ge=1, le=10 * 1024 * 1024)
-    file_content_base64: str | None = Field(default=None, min_length=1)
-    submission_text: str | None = Field(default=None, max_length=12000)
-    submission_link: str | None = Field(default=None, max_length=2048)
-    declaration_accepted: bool = False
+    file_size: int = Field(..., ge=1, le=10 * 1024 * 1024)
+    file_content_base64: str = Field(..., min_length=1)
 
 
 @contextmanager
@@ -195,16 +193,7 @@ def create_material_urls(file_url: str, file_name: str) -> tuple[str, str]:
 
     expires_in = int(os.getenv("AWS_S3_PRESIGNED_URL_EXPIRY", "3600"))
     expires_in = max(60, min(expires_in, 604800))
-    safe_name = (
-        file_name.replace('"', "")
-        .replace("\r", "")
-        .replace("\n", "")
-        .encode("ascii", "ignore")
-        .decode("ascii")
-        .strip()
-    )
-    if not safe_name:
-        safe_name = "download"
+    safe_name = file_name.replace('"', "").replace("\r", "").replace("\n", "")
     response_content_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
     client = get_s3_client()
     common = {
@@ -242,7 +231,6 @@ def fetch_current_student_record(student_email: str | None = None) -> dict:
           AND COALESCE(is_active, true) = true
           {email_filter}
         ORDER BY
-            CASE WHEN NULLIF(BTRIM(student_email), '') IS NULL THEN 1 ELSE 0 END,
             CASE WHEN admission_no IS NULL THEN 1 ELSE 0 END,
             student_id
         LIMIT 1;
@@ -261,7 +249,7 @@ def fetch_current_student_record(student_email: str | None = None) -> dict:
 
 
 def fetch_student_email(student_id: int) -> str | None:
-    """Resolve the active student's email for AI usage attribution."""
+    """Resolve an active student's email for AI usage attribution."""
     try:
         with get_connection() as connection:
             with connection.cursor() as cursor:
@@ -280,6 +268,9 @@ def fetch_student_email(student_id: int) -> str | None:
                 return row[0] if row else None
     except psycopg.Error:
         return None
+
+
+app.include_router(create_student_analysis_router(get_connection, fetch_current_student_record))
 
 
 def extract_json_object(content: str) -> dict:
@@ -510,151 +501,6 @@ def get_current_student(
     return {"student": student}
 
 
-@app.get("/students/daily-schedule")
-def get_student_daily_schedule(
-    email: str | None = Query(default=None, min_length=3, max_length=150),
-    selected_date: date = Query(default_factory=date.today, alias="date"),
-):
-    """Return a student's classes and subject-matched homework for one day."""
-    try:
-        student = fetch_current_student_record(email)
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    """
-                    SELECT
-                        schedule_id,
-                        subject_id,
-                        subject_name,
-                        teacher_name,
-                        start_time,
-                        end_time,
-                        room_number,
-                        meeting_url
-                    FROM sgs_class_schedule
-                    WHERE class_id = %s
-                      AND (section IS NULL OR BTRIM(section) = '' OR LOWER(BTRIM(section)) = LOWER(BTRIM(%s)))
-                      AND LOWER(COALESCE(record_status, 'Active')) = 'active'
-                      AND (
-                          schedule_date = %s
-                          OR (schedule_date IS NULL AND day_of_week = %s)
-                      )
-                    ORDER BY start_time, schedule_id;
-                    """,
-                    (
-                        student["class_id"],
-                        student.get("section") or "",
-                        selected_date,
-                        selected_date.isoweekday(),
-                    ),
-                )
-                classes = cursor.fetchall()
-
-                subject_ids = [item["subject_id"] for item in classes if item.get("subject_id") is not None]
-                homework_rows = []
-                attachment_rows = []
-                if subject_ids:
-                    cursor.execute(
-                        """
-                        SELECT
-                            a.assignment_id,
-                            a.subject_id,
-                            a.assignment_title,
-                            a.due_date,
-                            CASE
-                                WHEN r.submitted_at IS NOT NULL
-                                  OR r.submitted_file_name IS NOT NULL
-                                  OR r.submission_text IS NOT NULL
-                                  OR r.submission_link IS NOT NULL
-                                THEN 'Submitted'
-                                ELSE COALESCE(r.status, 'Not Started')
-                            END AS status
-                        FROM sgs_assignment_master a
-                        LEFT JOIN sgs_assignment_results r
-                          ON r.assignment_id = a.assignment_id
-                         AND r.student_id = %s
-                         AND UPPER(COALESCE(r.record_status, 'ACTIVE')) = 'ACTIVE'
-                        WHERE a.class_id = %s
-                          AND a.subject_id = ANY(%s)
-                          AND LOWER(COALESCE(a.record_status, 'Active')) = 'active'
-                        ORDER BY a.due_date ASC NULLS LAST, a.assignment_id DESC;
-                        """,
-                        (student["student_id"], student["class_id"], subject_ids),
-                    )
-                    homework_rows = cursor.fetchall()
-                    assignment_ids = [item["assignment_id"] for item in homework_rows]
-                    if assignment_ids:
-                        cursor.execute(
-                            """
-                            SELECT
-                                file_id,
-                                entity_id AS assignment_id,
-                                file_name,
-                                file_url,
-                                created_at
-                            FROM sgs_file_storage_metadata
-                            WHERE UPPER(BTRIM(entity_type)) = 'ASSIGNMENT_ATTACHMENT'
-                              AND entity_id = ANY(%s)
-                              AND LOWER(COALESCE(record_status, 'Active')) = 'active'
-                            ORDER BY created_at DESC NULLS LAST, file_id DESC;
-                            """,
-                            (assignment_ids,),
-                        )
-                        attachment_rows = cursor.fetchall()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=503,
-            detail="Daily schedule is not initialized. Run migration 003_daily_schedule.sql.",
-        ) from error
-    except psycopg.errors.UndefinedColumn as error:
-        raise HTTPException(status_code=500, detail="Daily schedule or assignment schema is incomplete.") from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch the daily schedule.") from error
-
-    attachments_by_assignment: dict[int, list[dict]] = {}
-    try:
-        for attachment in attachment_rows:
-            view_url, download_url = create_material_urls(
-                attachment["file_url"],
-                attachment["file_name"],
-            )
-            attachments_by_assignment.setdefault(attachment["assignment_id"], []).append(
-                {
-                    "file_id": attachment["file_id"],
-                    "file_name": attachment["file_name"],
-                    "view_url": view_url,
-                    "download_url": download_url,
-                    "created_at": attachment["created_at"],
-                }
-            )
-    except ValueError as error:
-        raise HTTPException(status_code=500, detail=str(error)) from error
-    except (BotoCoreError, ClientError) as error:
-        raise HTTPException(status_code=502, detail="Unable to create homework file links.") from error
-
-    homework_by_subject: dict[int, list[dict]] = {}
-    for item in homework_rows:
-        item["attachments"] = attachments_by_assignment.get(item["assignment_id"], [])
-        homework_by_subject.setdefault(item["subject_id"], []).append(item)
-
-    normalized_classes = []
-    for item in classes:
-        normalized_classes.append(
-            {
-                **item,
-                "start_time": item["start_time"].isoformat(timespec="minutes"),
-                "end_time": item["end_time"].isoformat(timespec="minutes"),
-                "homework": homework_by_subject.get(item.get("subject_id"), []),
-            }
-        )
-
-    return {
-        "date": selected_date,
-        "student": student,
-        "classes": normalized_classes,
-    }
-
-
 def ensure_assignment_submission_columns(cursor) -> None:
     cursor.execute(
         """
@@ -662,20 +508,15 @@ def ensure_assignment_submission_columns(cursor) -> None:
         ADD COLUMN IF NOT EXISTS submitted_file_name VARCHAR(255),
         ADD COLUMN IF NOT EXISTS submitted_file_type VARCHAR(160),
         ADD COLUMN IF NOT EXISTS submitted_file_size BIGINT,
-        ADD COLUMN IF NOT EXISTS submitted_file_content BYTEA,
-        ADD COLUMN IF NOT EXISTS submission_text TEXT,
-        ADD COLUMN IF NOT EXISTS submission_link VARCHAR(2048),
-        ADD COLUMN IF NOT EXISTS declaration_accepted BOOLEAN NOT NULL DEFAULT FALSE;
+        ADD COLUMN IF NOT EXISTS submitted_file_content BYTEA;
         """
     )
 
 
 @app.get("/assignments/current")
-def get_current_assignments(
-    email: str | None = Query(default=None, min_length=3, max_length=150),
-):
+def get_current_assignments():
     try:
-        student = fetch_current_student_record(email)
+        student = fetch_current_student_record()
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
                 ensure_assignment_submission_columns(cursor)
@@ -692,42 +533,16 @@ def get_current_assignments(
                         r.status AS submission_status,
                         r.submitted_at,
                         r.submitted_file_name,
-                        r.submitted_file_size,
-                        r.submission_text,
-                        r.submission_link,
-                        r.marks_obtained AS result_marks_obtained,
-                        r.total_marks,
-                        r.percentage,
-                        legacy.submission_id AS legacy_submission_id,
-                        legacy.submitted_at AS legacy_submitted_at,
-                        legacy.file_path AS legacy_file_path,
-                        legacy.marks_obtained AS legacy_marks_obtained,
-                        legacy.teacher_remarks,
-                        legacy.modified_datetime AS feedback_updated_at
+                        r.submitted_file_size
                     FROM sgs_assignment_master a
                     LEFT JOIN sgs_assignment_results r
                       ON r.assignment_id = a.assignment_id
                      AND r.student_id = %s
                      AND COALESCE(r.record_status, 'ACTIVE') = 'ACTIVE'
-                    LEFT JOIN LATERAL (
-                        SELECT
-                            s.submission_id,
-                            s.submitted_at,
-                            s.file_path,
-                            s.marks_obtained,
-                            s.teacher_remarks,
-                            s.modified_datetime
-                        FROM sgs_student_submission s
-                        WHERE s.assignment_id = a.assignment_id
-                          AND s.student_id = %s
-                          AND COALESCE(s.record_status, 'ACTIVE') = 'ACTIVE'
-                        ORDER BY s.submitted_at DESC NULLS LAST, s.submission_id DESC
-                        LIMIT 1
-                    ) legacy ON TRUE
                     WHERE COALESCE(a.record_status, 'Active') = 'Active'
                     ORDER BY a.due_date ASC NULLS LAST, a.assignment_id DESC
                     """,
-                    (student["student_id"], student["student_id"]),
+                    (student["student_id"],),
                 )
                 assignments = cursor.fetchall()
 
@@ -787,37 +602,7 @@ def get_current_assignments(
 
     normalized_assignments = []
     for index, assignment in enumerate(assignments, start=1):
-        current_submitted_at = assignment.get("submitted_at")
-        legacy_submitted_at = assignment.get("legacy_submitted_at")
-        result_marks = assignment.get("result_marks_obtained")
-        legacy_marks = assignment.get("legacy_marks_obtained")
-        teacher_feedback = assignment.get("teacher_remarks")
-        has_current_review = result_marks is not None or assignment.get("percentage") is not None
-        has_legacy_review = legacy_marks is not None or bool(teacher_feedback)
-        is_resubmission_pending = bool(
-            current_submitted_at
-            and legacy_submitted_at
-            and current_submitted_at > legacy_submitted_at
-            and not has_current_review
-        )
-        submitted = bool(
-            current_submitted_at
-            or legacy_submitted_at
-            or assignment.get("submitted_file_name")
-            or assignment.get("submission_text")
-            or assignment.get("submission_link")
-        )
-        if has_current_review:
-            review_status = "Reviewed"
-        elif is_resubmission_pending:
-            review_status = "Resubmitted - Awaiting Review"
-        elif has_legacy_review:
-            review_status = "Reviewed"
-        elif submitted:
-            review_status = "Awaiting Review"
-        else:
-            review_status = "Not Submitted"
-
+        submitted = bool(assignment.get("submitted_at") or assignment.get("submitted_file_name"))
         normalized_assignments.append(
             {
                 "number": index,
@@ -830,18 +615,9 @@ def get_current_assignments(
                 "attachments": attachments_by_assignment.get(assignment["assignment_id"], []),
                 "status": "Submitted" if submitted else (assignment.get("submission_status") or "Not Started"),
                 "action": "View" if submitted else "Start",
-                "submitted_at": current_submitted_at or legacy_submitted_at,
-                "submitted_file_name": assignment.get("submitted_file_name") or assignment.get("legacy_file_path"),
+                "submitted_at": assignment.get("submitted_at"),
+                "submitted_file_name": assignment.get("submitted_file_name"),
                 "submitted_file_size": assignment.get("submitted_file_size"),
-                "submission_text": assignment.get("submission_text"),
-                "submission_link": assignment.get("submission_link"),
-                "marks_obtained": result_marks if result_marks is not None else legacy_marks,
-                "total_marks": assignment.get("total_marks"),
-                "percentage": assignment.get("percentage"),
-                "teacher_feedback": teacher_feedback,
-                "feedback_updated_at": assignment.get("feedback_updated_at") or legacy_submitted_at,
-                "review_status": review_status,
-                "is_previous_review": is_resubmission_pending,
             }
         )
 
@@ -850,36 +626,13 @@ def get_current_assignments(
 
 @app.post("/assignments/submit")
 def submit_assignment(payload: AssignmentSubmissionInput):
-    submission_text = (payload.submission_text or "").strip() or None
-    submission_link = (payload.submission_link or "").strip() or None
-    has_complete_file = all(
-        [payload.file_name, payload.file_size, payload.file_content_base64]
-    )
-    has_partial_file = any(
-        [payload.file_name, payload.file_size, payload.file_content_base64]
-    )
+    try:
+        file_bytes = base64.b64decode(payload.file_content_base64, validate=True)
+    except (ValueError, base64.binascii.Error) as error:
+        raise HTTPException(status_code=400, detail="Invalid file content.") from error
 
-    if not payload.declaration_accepted:
-        raise HTTPException(status_code=400, detail="Confirm that the submission is your own work.")
-    if not has_complete_file and not submission_text and not submission_link:
-        raise HTTPException(status_code=400, detail="Add a written answer, submission link, or file.")
-    if has_partial_file and not has_complete_file:
-        raise HTTPException(status_code=400, detail="Uploaded file metadata is incomplete.")
-
-    if submission_link:
-        parsed_link = urlparse(submission_link)
-        if parsed_link.scheme not in {"http", "https"} or not parsed_link.netloc:
-            raise HTTPException(status_code=400, detail="Enter a valid http or https submission link.")
-
-    file_bytes = None
-    if has_complete_file:
-        try:
-            file_bytes = base64.b64decode(payload.file_content_base64, validate=True)
-        except (ValueError, base64.binascii.Error) as error:
-            raise HTTPException(status_code=400, detail="Invalid file content.") from error
-
-        if len(file_bytes) != payload.file_size:
-            raise HTTPException(status_code=400, detail="Uploaded file size does not match file metadata.")
+    if len(file_bytes) != payload.file_size:
+        raise HTTPException(status_code=400, detail="Uploaded file size does not match file metadata.")
 
     try:
         student = fetch_current_student_record()
@@ -923,9 +676,6 @@ def submit_assignment(payload: AssignmentSubmissionInput):
                             submitted_file_type = %s,
                             submitted_file_size = %s,
                             submitted_file_content = %s,
-                            submission_text = %s,
-                            submission_link = %s,
-                            declaration_accepted = %s,
                             modified_datetime = CURRENT_TIMESTAMP,
                             modified_user_id = %s
                         WHERE assignment_result_id = %s
@@ -936,9 +686,6 @@ def submit_assignment(payload: AssignmentSubmissionInput):
                             payload.file_type or "application/octet-stream",
                             payload.file_size,
                             file_bytes,
-                            submission_text,
-                            submission_link,
-                            payload.declaration_accepted,
                             str(student["student_id"]),
                             existing_result["assignment_result_id"],
                         ),
@@ -959,13 +706,10 @@ def submit_assignment(payload: AssignmentSubmissionInput):
                             submitted_file_type,
                             submitted_file_size,
                             submitted_file_content,
-                            submission_text,
-                            submission_link,
-                            declaration_accepted,
                             created_user_id
                         )
-                        VALUES (%s, %s, %s, %s, %s, 'Submitted', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, %s, %s, %s)
-                        RETURNING assignment_result_id, submitted_at, submitted_file_name, submitted_file_size, submission_link;
+                        VALUES (%s, %s, %s, %s, %s, 'Submitted', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
+                        RETURNING assignment_result_id, submitted_at, submitted_file_name, submitted_file_size;
                         """,
                         (
                             payload.assignment_id,
@@ -978,9 +722,6 @@ def submit_assignment(payload: AssignmentSubmissionInput):
                             payload.file_type or "application/octet-stream",
                             payload.file_size,
                             file_bytes,
-                            submission_text,
-                            submission_link,
-                            payload.declaration_accepted,
                             str(student["student_id"]),
                         ),
                     )
@@ -1001,7 +742,6 @@ def submit_assignment(payload: AssignmentSubmissionInput):
         "submitted": True,
         "student_id": student["student_id"],
         "assignment_id": payload.assignment_id,
-        "submission_reference": f"SGS-ASG-{saved_submission['assignment_result_id']}",
         "submission": saved_submission,
     }
 
@@ -1499,7 +1239,7 @@ def fetch_chapter_for_quiz(chapter_id: int) -> dict:
 
 
 def fetch_quiz_study_material_parts(chapter_id: int) -> tuple[list[dict], list[str]]:
-    """Load a small, bounded set of chapter PDFs for Gemini's native document input."""
+    """Load a bounded set of chapter PDFs for Gemini's native document input."""
     query = """
         SELECT file_name, file_url
         FROM sgs_file_storage_metadata
@@ -1962,153 +1702,6 @@ def get_student_performance_summary(
     student_id: int = Query(..., ge=1),
 ):
     return calculate_performance_summary(student_id)
-
-
-@app.get("/student-analysis")
-def get_student_analysis(
-    email: str = Query(..., min_length=3, max_length=150),
-):
-    """Return assessment analytics for the student identified by the login email."""
-    student = fetch_current_student_record(email)
-    query = """
-        SELECT
-            assessment.assessment_id,
-            assessment.title,
-            assessment.assessment_type::text AS assessment_type,
-            assessment.assessment_date,
-            assessment.max_marks,
-            assessment.subject,
-            result.marks_obtained,
-            COALESCE(
-                result.percentage,
-                CASE
-                    WHEN assessment.max_marks > 0
-                    THEN ROUND(result.marks_obtained * 100 / assessment.max_marks, 2)
-                    ELSE 0
-                END
-            ) AS percentage
-        FROM sgs_assessment_results result
-        INNER JOIN sgs_assessments assessment
-          ON assessment.assessment_id = result.assessment_id
-        WHERE result.student_id = %s
-          AND result.record_status = 'Active'
-          AND assessment.record_status = 'Active'
-          AND COALESCE(result.is_absent, false) = false
-          AND NULLIF(BTRIM(assessment.subject), '') IS NOT NULL
-        ORDER BY assessment.assessment_date, assessment.assessment_id;
-    """
-
-    try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (student["student_id"],))
-                rows = cursor.fetchall()
-    except psycopg.errors.UndefinedTable as error:
-        raise HTTPException(
-            status_code=500,
-            detail="Assessment analysis tables are missing.",
-        ) from error
-    except psycopg.Error as error:
-        raise HTTPException(status_code=500, detail="Unable to fetch student analysis.") from error
-
-    subject_values: dict[str, list[float]] = {}
-    test_groups: dict[tuple[str, str], dict] = {}
-    all_percentages: list[float] = []
-
-    for row in rows:
-        subject = str(row["subject"]).strip()
-        percentage = round(float(row["percentage"] or 0), 2)
-        assessment_date = row["assessment_date"]
-        date_value = assessment_date.isoformat() if assessment_date else ""
-        title = str(row["title"] or "Assessment").strip()
-        suffix = f" - {subject}"
-        test_name = title[: -len(suffix)] if title.endswith(suffix) else title
-
-        subject_values.setdefault(subject, []).append(percentage)
-        group = test_groups.setdefault(
-            (test_name, date_value),
-            {
-                "test_name": test_name,
-                "assessment_date": date_value,
-                "subjects": [],
-                "percentages": [],
-            },
-        )
-        group["subjects"].append(
-            {
-                "subject": subject,
-                "marks_obtained": float(row["marks_obtained"] or 0),
-                "max_marks": float(row["max_marks"] or 0),
-                "percentage": percentage,
-            }
-        )
-        group["percentages"].append(percentage)
-        all_percentages.append(percentage)
-
-    subject_performance = [
-        {
-            "subject": subject,
-            "average_percentage": round(sum(values) / len(values), 2),
-        }
-        for subject, values in sorted(subject_values.items())
-    ]
-
-    detailed_tests = []
-    timeline = []
-    for group in test_groups.values():
-        average = round(sum(group["percentages"]) / len(group["percentages"]), 2)
-        subjects = sorted(group["subjects"], key=lambda item: item["subject"])
-        detailed_tests.append(
-            {
-                "test_name": group["test_name"],
-                "assessment_date": group["assessment_date"],
-                "average_percentage": average,
-                "subjects": subjects,
-            }
-        )
-        timeline.append(
-            {
-                "label": group["test_name"],
-                "assessment_date": group["assessment_date"],
-                "average_percentage": average,
-            }
-        )
-
-    focus_areas = []
-    for item in sorted(subject_performance, key=lambda entry: entry["average_percentage"]):
-        current = item["average_percentage"]
-        focus_areas.append(
-            {
-                "subject": item["subject"],
-                "current_percentage": current,
-                "target_percentage": round(min(100, max(85, current + 8)), 2),
-                "priority": "High" if current < 70 else "Medium" if current < 80 else "Maintain",
-            }
-        )
-
-    dated_rows = [row for row in rows if row["assessment_date"]]
-    academic_year = "2026-27"
-    if dated_rows:
-        start_year = min(row["assessment_date"] for row in dated_rows).year
-        academic_year = f"{start_year}-{str(start_year + 1)[-2:]}"
-
-    return {
-        "student": {
-            "student_id": student["student_id"],
-            "full_name": student["full_name"],
-            "student_email": student["student_email"],
-            "class_id": student["class_id"],
-            "section": student["section"],
-            "roll_no": student["roll_no"],
-            "admission_no": student["admission_no"],
-        },
-        "academic_year": academic_year,
-        "overall_average": round(sum(all_percentages) / len(all_percentages), 2) if all_percentages else 0,
-        "subject_performance": subject_performance,
-        "timeline": timeline,
-        "detailed_tests": detailed_tests,
-        "focus_areas": focus_areas,
-    }
 
 
 @app.post("/learning-path/generate-overall")

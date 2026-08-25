@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def extract_token_usage(response: Mapping[str, Any] | None) -> tuple[int, int, int]:
-    """Return prompt, completion, and total tokens from Gemini or OpenAI-style responses."""
+    """Return prompt, completion, and total tokens from supported AI responses."""
     if not response:
         return 0, 0, 0
 
@@ -47,8 +47,9 @@ def log_ai_usage(
     completion_tokens: int | None = None,
     total_tokens: int | None = None,
 ) -> bool:
-    """Write one AI usage row without allowing analytics failures to break the feature."""
-    if not (os.getenv("DATABASE_URL") or "").strip():
+    """Write one usage row without allowing analytics failures to break the AI feature."""
+    database_url = (os.getenv("DATABASE_URL") or "").strip()
+    if not database_url:
         logger.warning("AI usage was not logged because DATABASE_URL is not configured.")
         return False
 
