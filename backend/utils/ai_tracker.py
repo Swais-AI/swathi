@@ -69,7 +69,7 @@ def log_ai_usage(
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    INSERT INTO ai_usage_logs (
+                    INSERT INTO sgs_ai_usage_logs (
                         client_name,
                         user_email,
                         module_name,
@@ -93,5 +93,5 @@ def log_ai_usage(
             connection.commit()
         return True
     except (psycopg.Error, PoolTimeout, ValueError, TypeError) as error:
-        logger.warning("Unable to write ai_usage_logs: %s", error)
+        logger.warning("Unable to write sgs_ai_usage_logs: %s", error)
         return False
