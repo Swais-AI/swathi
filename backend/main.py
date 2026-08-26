@@ -2,7 +2,7 @@ import os
 import json
 import base64
 import mimetypes
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -19,15 +19,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from psycopg_pool import PoolTimeout
 
 from ai_learning_path_service import classify_performance, classify_reader, get_learning_path_generator
+from database import close_database_pool, database_connection
 from student_analysis import create_student_analysis_router
 from utils.ai_tracker import log_ai_usage
 
 
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
-app = FastAPI(title="SGS Chapter Content API")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    close_database_pool()
+
+
+app = FastAPI(title="SGS Chapter Content API", lifespan=lifespan)
 
 
 def get_cors_origins() -> list[str]:
@@ -127,20 +135,18 @@ class AssignmentSubmissionInput(BaseModel):
     file_content_base64: str = Field(..., min_length=1)
 
 
-def get_database_url() -> str:
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise HTTPException(
-            status_code=500,
-            detail="DATABASE_URL is not configured for the FastAPI backend.",
-        )
-    return database_url
-
-
 @contextmanager
 def get_connection():
-    with psycopg.connect(get_database_url()) as connection:
-        yield connection
+    try:
+        with database_connection() as connection:
+            yield connection
+    except PoolTimeout as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Database is busy. Please try again shortly.",
+        ) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
 
 STUDY_MATERIAL_ENTITY_TYPE = "CHAPTER_STUDY_MATERIAL"
