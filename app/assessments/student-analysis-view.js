@@ -5,13 +5,17 @@ import { getApiBaseUrl } from "../api-base-url";
 
 
 const API_BASE_URL = getApiBaseUrl();
-const LOGIN_SERVICE_URL = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
+const CONFIGURED_LOGIN_SERVICE_URL = (process.env.NEXT_PUBLIC_LOGIN_URL || "").trim().replace(/\/+$/, "");
 const COLORS = ["#1266d6", "#f2a900", "#42ad4b", "#f31f2f", "#8b5cf6", "#06b6d4"];
+
+function getLoginServiceUrl() {
+  return CONFIGURED_LOGIN_SERVICE_URL || (typeof window !== "undefined" ? window.location.origin : "");
+}
 
 
 async function getLoggedInStudentEmail() {
   try {
-    const response = await fetch(`${LOGIN_SERVICE_URL}/api/auth/session`, {
+    const response = await fetch(`${getLoginServiceUrl()}/api/auth/session`, {
       credentials: "include"
     });
     if (response.ok) {

@@ -1,7 +1,15 @@
 import { getApiBaseUrl } from "./api-base-url";
 
-const LOGIN_SERVICE_URL = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
+const CONFIGURED_LOGIN_SERVICE_URL = (process.env.NEXT_PUBLIC_LOGIN_URL || "").trim().replace(/\/+$/, "");
 const API_BASE_URL = getApiBaseUrl();
+
+function getLoginServiceUrl() {
+  if (CONFIGURED_LOGIN_SERVICE_URL) {
+    return CONFIGURED_LOGIN_SERVICE_URL;
+  }
+
+  return typeof window !== "undefined" ? window.location.origin : "";
+}
 
 let sessionPromise = null;
 
@@ -9,7 +17,7 @@ export async function getLoggedInUserEmail() {
   if (!sessionPromise) {
     sessionPromise = (async () => {
       try {
-        const response = await fetch(`${LOGIN_SERVICE_URL}/api/auth/session`, {
+        const response = await fetch(`${getLoginServiceUrl()}/api/auth/session`, {
           credentials: "include"
         });
         if (response.ok) {

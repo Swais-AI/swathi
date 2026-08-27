@@ -8,8 +8,12 @@ import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
 const API_BASE_URL = getApiBaseUrl();
-const LOGIN_SERVICE_URL = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
+const CONFIGURED_LOGIN_SERVICE_URL = (process.env.NEXT_PUBLIC_LOGIN_URL || "").trim().replace(/\/+$/, "");
 const AI_REQUEST_DELAY_MS = 15000;
+
+function getLoginServiceUrl() {
+  return CONFIGURED_LOGIN_SERVICE_URL || (typeof window !== "undefined" ? window.location.origin : "");
+}
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 35000) {
   const controller = new AbortController();
@@ -163,7 +167,7 @@ export default function QuizzesPage() {
     setStatus("Saving quiz result...");
 
     try {
-      const sessionResponse = await fetch(`${LOGIN_SERVICE_URL}/api/auth/session`, {
+      const sessionResponse = await fetch(`${getLoginServiceUrl()}/api/auth/session`, {
         credentials: "include"
       });
       const session = await sessionResponse.json().catch(() => ({}));
