@@ -25,17 +25,26 @@ const settingsItems = [
   ["help", "Help & Support", "/help"]
 ];
 
-const loginServiceUrl = process.env.NEXT_PUBLIC_LOGIN_URL || "https://staging.sgs.swais.in";
+const configuredLoginServiceUrl = (process.env.NEXT_PUBLIC_LOGIN_URL || "").trim().replace(/\/+$/, "");
 const DashboardShellContext = createContext(false);
 const API_BASE_URL = getApiBaseUrl();
-const loginServiceSignOutUrl =
-  process.env.NEXT_PUBLIC_LOGIN_SIGNOUT_URL ||
-  `${loginServiceUrl}/api/auth/signout?callbackUrl=${encodeURIComponent(loginServiceUrl)}`;
+
+function getLoginServiceUrl() {
+  if (configuredLoginServiceUrl) {
+    return configuredLoginServiceUrl;
+  }
+
+  return typeof window !== "undefined" ? window.location.origin : "";
+}
 
 async function handleLogout(event) {
   event.preventDefault();
   window.localStorage.clear();
   window.sessionStorage.clear();
+  const loginServiceUrl = getLoginServiceUrl();
+  const loginServiceSignOutUrl =
+    (process.env.NEXT_PUBLIC_LOGIN_SIGNOUT_URL || "").trim() ||
+    `${loginServiceUrl}/api/auth/signout?callbackUrl=${encodeURIComponent(loginServiceUrl)}`;
 
   try {
     const csrfResponse = await fetch(`${loginServiceUrl}/api/auth/csrf`, {
@@ -96,6 +105,7 @@ function useCurrentStudent() {
 
     async function loadStudent() {
       try {
+        const loginServiceUrl = getLoginServiceUrl();
         const sessionResponse = await fetch(`${loginServiceUrl}/api/auth/session`, {
           credentials: "include"
         });
@@ -194,7 +204,7 @@ function DashboardShellFrame({ children }) {
 
         <div className="nav-divider" />
 
-        <a className="nav-item logout-link" href={loginServiceUrl} onClick={handleLogout}>
+        <a className="nav-item logout-link" href={configuredLoginServiceUrl || "/"} onClick={handleLogout}>
           <Icon name="power" />
           <span>Logout</span>
         </a>
