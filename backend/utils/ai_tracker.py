@@ -1,18 +1,18 @@
 import logging
-import os
 from typing import Any, Mapping
 
 import psycopg
 from psycopg_pool import PoolTimeout
 
 from database import database_connection
+from settings import get_settings
 
 
 logger = logging.getLogger(__name__)
 
 
 def extract_token_usage(response: Mapping[str, Any] | None) -> tuple[int, int, int]:
-    """Return prompt, completion, and total tokens from supported AI responses."""
+    """Return prompt, completion, and total tokens from Gemini or OpenAI-style responses."""
     if not response:
         return 0, 0, 0
 
@@ -37,7 +37,7 @@ def extract_token_usage(response: Mapping[str, Any] | None) -> tuple[int, int, i
     return prompt_tokens, completion_tokens, total_tokens
 
 
-def log_ai_usage(
+async def log_ai_usage(
     *,
     module_name: str,
     feature_used: str,
@@ -47,12 +47,7 @@ def log_ai_usage(
     completion_tokens: int | None = None,
     total_tokens: int | None = None,
 ) -> bool:
-    """Write one usage row without allowing analytics failures to break the AI feature."""
-    database_url = (os.getenv("DATABASE_URL") or "").strip()
-    if not database_url:
-        logger.warning("AI usage was not logged because DATABASE_URL is not configured.")
-        return False
-
+    """Write one AI usage row without allowing analytics failures to break the feature."""
     extracted_prompt, extracted_completion, extracted_total = extract_token_usage(response)
     prompt_count = max(0, int(prompt_tokens if prompt_tokens is not None else extracted_prompt))
     completion_count = max(
@@ -65,9 +60,10 @@ def log_ai_usage(
     )
 
     try:
-        with database_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
+        settings = get_settings()
+        async with database_connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
                     """
                     INSERT INTO sgs_ai_usage_logs (
                         client_name,
@@ -81,7 +77,7 @@ def log_ai_usage(
                     VALUES (%s, %s, %s, %s, %s, %s, %s);
                     """,
                     (
-                        (os.getenv("CLIENT_NAME") or "SGS").strip() or "SGS",
+                        settings.client_name.strip(),
                         (user_email or "").strip() or None,
                         module_name.strip(),
                         feature_used.strip(),
@@ -90,7 +86,7 @@ def log_ai_usage(
                         total_count,
                     ),
                 )
-            connection.commit()
+            await connection.commit()
         return True
     except (psycopg.Error, PoolTimeout, ValueError, TypeError) as error:
         logger.warning("Unable to write sgs_ai_usage_logs: %s", error)

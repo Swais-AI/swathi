@@ -120,7 +120,7 @@ class MockLearningPathLLM:
 
     provider_name = "mock-free-llm"
 
-    def generate_path(
+    async def generate_path(
         self,
         chapter_title: str,
         classification: str,
@@ -156,7 +156,7 @@ class DeepSeekLearningPathLLM:
         self.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
         self.model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
-    def generate_path(
+    async def generate_path(
         self,
         chapter_title: str,
         classification: str,
@@ -198,7 +198,7 @@ class DeepSeekLearningPathLLM:
             response = self._post_chat_completion(payload)
             content = response["choices"][0]["message"]["content"]
             ai_path = json.loads(content)
-            log_ai_usage(
+            await log_ai_usage(
                 module_name="AI Learning Path",
                 feature_used="Learning Path Generation",
                 user_email=user_email,
@@ -256,7 +256,7 @@ class GeminiLearningPathLLM:
         self.base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").rstrip("/")
         self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
-    def generate_path(
+    async def generate_path(
         self,
         chapter_title: str,
         classification: str,
@@ -290,7 +290,7 @@ class GeminiLearningPathLLM:
             response = self._generate_content(payload)
             content = _gemini_text(response)
             ai_path = _loads_json_object(content)
-            log_ai_usage(
+            await log_ai_usage(
                 module_name="AI Learning Path",
                 feature_used="Learning Path Generation",
                 user_email=user_email,
