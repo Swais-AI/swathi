@@ -1,46 +1,51 @@
-from contextlib import asynccontextmanager
+import os
+from contextlib import contextmanager
+from threading import Lock
 
-from psycopg_pool import AsyncConnectionPool
-
-from pool_psycopg import build_pool
-from settings import get_settings
-
-
-SERVICE_NAME = "sgs-student-api"
-_pool: AsyncConnectionPool | None = None
+from psycopg_pool import ConnectionPool
 
 
-async def open_database_pool() -> AsyncConnectionPool:
+_pool: ConnectionPool | None = None
+_pool_lock = Lock()
+
+
+def get_database_url() -> str:
+    database_url = (os.getenv("DATABASE_URL") or "").strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not configured for the FastAPI backend.")
+    return database_url
+
+
+def get_database_pool() -> ConnectionPool:
     global _pool
 
     if _pool is None:
-        settings = get_settings()
-        _pool = build_pool(
-            url=settings.database_url,
-            service=SERVICE_NAME,
-            slots=settings.db_service_slots,
-            reserve=settings.db_pool_reserve,
-        )
-        await _pool.open(wait=True)
+        with _pool_lock:
+            if _pool is None:
+                pool = ConnectionPool(
+                    conninfo=get_database_url(),
+                    min_size=1,
+                    max_size=5,
+                    timeout=10,
+                    max_idle=300,
+                    name="sgs-student-dashboard",
+                    open=False,
+                )
+                pool.open(wait=True)
+                _pool = pool
 
     return _pool
 
 
-def get_database_pool() -> AsyncConnectionPool:
-    if _pool is None:
-        raise RuntimeError("Database pool has not been opened during application startup.")
-    return _pool
-
-
-@asynccontextmanager
-async def database_connection():
-    async with get_database_pool().connection() as connection:
+@contextmanager
+def database_connection():
+    with get_database_pool().connection() as connection:
         yield connection
 
 
-async def close_database_pool() -> None:
+def close_database_pool() -> None:
     global _pool
 
     if _pool is not None:
-        await _pool.close()
+        _pool.close()
         _pool = None
