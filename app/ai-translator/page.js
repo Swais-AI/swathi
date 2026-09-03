@@ -3,6 +3,7 @@
 import { useState } from "react";
 import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
+import { getLoggedInUserEmail } from "../login-session";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
@@ -66,13 +67,15 @@ export default function AiTranslatorPage() {
 
     try {
       await waitBeforeAiRequest();
+      const userEmail = await getLoggedInUserEmail();
       const response = await fetchWithTimeout(`${API_BASE_URL}/ai/translate-text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: trimmedText,
           source_language: sourceLanguage === "Auto Detect" ? null : sourceLanguage,
-          target_language: targetLanguage
+          target_language: targetLanguage,
+          user_email: userEmail
         })
       });
       const data = await response.json().catch(() => ({}));
