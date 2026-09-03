@@ -2,7 +2,7 @@ import os
 import json
 import base64
 import mimetypes
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -22,7 +22,7 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import PoolTimeout
 
 from ai_learning_path_service import classify_performance, classify_reader, get_learning_path_generator
-from database import close_database_pool, database_connection
+from database import close_database_pool, database_connection, open_database_pool
 from utils.ai_tracker import log_ai_usage
 
 
@@ -30,8 +30,11 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    yield
-    close_database_pool()
+    await open_database_pool()
+    try:
+        yield
+    finally:
+        await close_database_pool()
 
 
 app = FastAPI(title="SGS Chapter Content API", lifespan=lifespan)
@@ -137,10 +140,10 @@ class AssignmentSubmissionInput(BaseModel):
     declaration_accepted: bool = False
 
 
-@contextmanager
-def get_connection():
+@asynccontextmanager
+async def get_connection():
     try:
-        with database_connection() as connection:
+        async with database_connection() as connection:
             yield connection
     except PoolTimeout as error:
         raise HTTPException(
@@ -225,7 +228,7 @@ def create_material_urls(file_url: str, file_name: str) -> tuple[str, str]:
     return view_url, download_url
 
 
-def fetch_current_student_record(student_email: str | None = None) -> dict:
+async def fetch_current_student_record(student_email: str | None = None) -> dict:
     email_filter = "AND LOWER(BTRIM(student_email)) = LOWER(BTRIM(%s))" if student_email else ""
     query = f"""
         SELECT
@@ -248,10 +251,10 @@ def fetch_current_student_record(student_email: str | None = None) -> dict:
         LIMIT 1;
     """
 
-    with get_connection() as connection:
-        with connection.cursor(row_factory=dict_row) as cursor:
-            cursor.execute(query, (student_email,) if student_email else ())
-            student = cursor.fetchone()
+    async with get_connection() as connection:
+        async with connection.cursor(row_factory=dict_row) as cursor:
+            await cursor.execute(query, (student_email,) if student_email else ())
+            student = await cursor.fetchone()
 
     if student is None:
         detail = "No active student found for the logged-in email." if student_email else "No active student found."
@@ -260,12 +263,12 @@ def fetch_current_student_record(student_email: str | None = None) -> dict:
     return student
 
 
-def fetch_student_email(student_id: int) -> str | None:
+async def fetch_student_email(student_id: int) -> str | None:
     """Resolve the active student's email for AI usage attribution."""
     try:
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
+        async with get_connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
                     """
                     SELECT NULLIF(BTRIM(student_email), '')
                     FROM sgs_student_master
@@ -276,7 +279,7 @@ def fetch_student_email(student_id: int) -> str | None:
                     """,
                     (student_id,),
                 )
-                row = cursor.fetchone()
+                row = await cursor.fetchone()
                 return row[0] if row else None
     except psycopg.Error:
         return None
@@ -305,7 +308,7 @@ def extract_json_object(content: str) -> dict:
     return parsed
 
 
-def gemini_generate_json(
+async def gemini_generate_json(
     prompt: str,
     max_output_tokens: int = 4096,
     *,
@@ -371,7 +374,7 @@ def gemini_generate_json(
             parts = body["candidates"][0]["content"]["parts"]
             content = "\n".join(part.get("text", "") for part in parts).strip()
             parsed_content = extract_json_object(content)
-            log_ai_usage(
+            await log_ai_usage(
                 module_name=module_name,
                 feature_used=feature_used,
                 user_email=user_email,
@@ -416,7 +419,7 @@ def get_due_status(due_date_value) -> dict:
     return {"label": "Later", "priority": "low", "days_left": days_left, "is_countable": False}
 
 
-def apply_ai_assignment_messages(
+async def apply_ai_assignment_messages(
     assignments: list[dict],
     user_email: str | None = None,
 ) -> list[dict]:
@@ -446,7 +449,7 @@ def apply_ai_assignment_messages(
         {json.dumps(assignments, default=str, ensure_ascii=False)}
     """
 
-    generated = gemini_generate_json(
+    generated = await gemini_generate_json(
         prompt,
         max_output_tokens=2048,
         module_name="Assignments",
@@ -478,12 +481,12 @@ def health_check():
 
 
 @app.get("/health/db")
-def database_health_check():
+async def database_health_check():
     try:
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT 1;")
-                cursor.fetchone()
+        async with get_connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute("SELECT 1;")
+                await cursor.fetchone()
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Database connection failed.") from error
 
@@ -491,11 +494,11 @@ def database_health_check():
 
 
 @app.get("/students/current")
-def get_current_student(
+async def get_current_student(
     email: str | None = Query(default=None, min_length=3, max_length=150),
 ):
     try:
-        student = fetch_current_student_record(email)
+        student = await fetch_current_student_record(email)
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -511,16 +514,16 @@ def get_current_student(
 
 
 @app.get("/students/daily-schedule")
-def get_student_daily_schedule(
+async def get_student_daily_schedule(
     email: str | None = Query(default=None, min_length=3, max_length=150),
     selected_date: date = Query(default_factory=date.today, alias="date"),
 ):
     """Return a student's classes and subject-matched homework for one day."""
     try:
-        student = fetch_current_student_record(email)
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
+        student = await fetch_current_student_record(email)
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(
                     """
                     SELECT
                         schedule_id,
@@ -548,13 +551,13 @@ def get_student_daily_schedule(
                         selected_date.isoweekday(),
                     ),
                 )
-                classes = cursor.fetchall()
+                classes = await cursor.fetchall()
 
                 subject_ids = [item["subject_id"] for item in classes if item.get("subject_id") is not None]
                 homework_rows = []
                 attachment_rows = []
                 if subject_ids:
-                    cursor.execute(
+                    await cursor.execute(
                         """
                         SELECT
                             a.assignment_id,
@@ -581,10 +584,10 @@ def get_student_daily_schedule(
                         """,
                         (student["student_id"], student["class_id"], subject_ids),
                     )
-                    homework_rows = cursor.fetchall()
+                    homework_rows = await cursor.fetchall()
                     assignment_ids = [item["assignment_id"] for item in homework_rows]
                     if assignment_ids:
-                        cursor.execute(
+                        await cursor.execute(
                             """
                             SELECT
                                 file_id,
@@ -600,7 +603,7 @@ def get_student_daily_schedule(
                             """,
                             (assignment_ids,),
                         )
-                        attachment_rows = cursor.fetchall()
+                        attachment_rows = await cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=503,
@@ -655,8 +658,8 @@ def get_student_daily_schedule(
     }
 
 
-def ensure_assignment_submission_columns(cursor) -> None:
-    cursor.execute(
+async def ensure_assignment_submission_columns(cursor) -> None:
+    await cursor.execute(
         """
         ALTER TABLE sgs_assignment_results
         ADD COLUMN IF NOT EXISTS submitted_file_name VARCHAR(255),
@@ -671,15 +674,15 @@ def ensure_assignment_submission_columns(cursor) -> None:
 
 
 @app.get("/assignments/current")
-def get_current_assignments(
+async def get_current_assignments(
     email: str | None = Query(default=None, min_length=3, max_length=150),
 ):
     try:
-        student = fetch_current_student_record(email)
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                ensure_assignment_submission_columns(cursor)
-                cursor.execute(
+        student = await fetch_current_student_record(email)
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await ensure_assignment_submission_columns(cursor)
+                await cursor.execute(
                     """
                     SELECT
                         a.assignment_id,
@@ -729,12 +732,12 @@ def get_current_assignments(
                     """,
                     (student["student_id"], student["student_id"]),
                 )
-                assignments = cursor.fetchall()
+                assignments = await cursor.fetchall()
 
                 attachment_rows = []
                 assignment_ids = [assignment["assignment_id"] for assignment in assignments]
                 if assignment_ids:
-                    cursor.execute(
+                    await cursor.execute(
                         """
                         SELECT
                             file_id,
@@ -750,7 +753,7 @@ def get_current_assignments(
                         """,
                         (assignment_ids,),
                     )
-                    attachment_rows = cursor.fetchall()
+                    attachment_rows = await cursor.fetchall()
     except psycopg.errors.UndefinedColumn as error:
         raise HTTPException(
             status_code=500,
@@ -849,7 +852,7 @@ def get_current_assignments(
 
 
 @app.post("/assignments/submit")
-def submit_assignment(payload: AssignmentSubmissionInput):
+async def submit_assignment(payload: AssignmentSubmissionInput):
     submission_text = (payload.submission_text or "").strip() or None
     submission_link = (payload.submission_link or "").strip() or None
     has_complete_file = all(
@@ -882,11 +885,11 @@ def submit_assignment(payload: AssignmentSubmissionInput):
             raise HTTPException(status_code=400, detail="Uploaded file size does not match file metadata.")
 
     try:
-        student = fetch_current_student_record()
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                ensure_assignment_submission_columns(cursor)
-                cursor.execute(
+        student = await fetch_current_student_record()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await ensure_assignment_submission_columns(cursor)
+                await cursor.execute(
                     """
                     SELECT assignment_id, assignment_title, due_date, subject_id
                     FROM sgs_assignment_master
@@ -896,11 +899,11 @@ def submit_assignment(payload: AssignmentSubmissionInput):
                     """,
                     (payload.assignment_id,),
                 )
-                assignment = cursor.fetchone()
+                assignment = await cursor.fetchone()
                 if assignment is None:
                     raise HTTPException(status_code=404, detail="Assignment not found.")
 
-                cursor.execute(
+                await cursor.execute(
                     """
                     SELECT assignment_result_id
                     FROM sgs_assignment_results
@@ -911,10 +914,10 @@ def submit_assignment(payload: AssignmentSubmissionInput):
                     """,
                     (payload.assignment_id, student["student_id"]),
                 )
-                existing_result = cursor.fetchone()
+                existing_result = await cursor.fetchone()
 
                 if existing_result:
-                    cursor.execute(
+                    await cursor.execute(
                         """
                         UPDATE sgs_assignment_results
                         SET status = 'Submitted',
@@ -944,7 +947,7 @@ def submit_assignment(payload: AssignmentSubmissionInput):
                         ),
                     )
                 else:
-                    cursor.execute(
+                    await cursor.execute(
                         """
                         INSERT INTO sgs_assignment_results (
                             assignment_id,
@@ -985,8 +988,8 @@ def submit_assignment(payload: AssignmentSubmissionInput):
                         ),
                     )
 
-                saved_submission = cursor.fetchone()
-            connection.commit()
+                saved_submission = await cursor.fetchone()
+            await connection.commit()
     except HTTPException:
         raise
     except psycopg.errors.UndefinedTable as error:
@@ -1007,7 +1010,7 @@ def submit_assignment(payload: AssignmentSubmissionInput):
 
 
 @app.get("/classes")
-def get_classes():
+async def get_classes():
     query = """
         SELECT
             class_id,
@@ -1021,10 +1024,10 @@ def get_classes():
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query)
-                classes = cursor.fetchall()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query)
+                classes = await cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -1037,7 +1040,7 @@ def get_classes():
 
 
 @app.get("/subjects")
-def get_subjects(
+async def get_subjects(
     class_id: int | None = Query(default=None, ge=1),
 ):
     query = """
@@ -1048,14 +1051,15 @@ def get_subjects(
         FROM sgs_subject_master
         WHERE subject_id IS NOT NULL
           AND NULLIF(BTRIM(subject_name), '') IS NOT NULL
+          AND (%s IS NULL OR class_id = %s)
         ORDER BY subject_name;
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query)
-                subjects = cursor.fetchall()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (class_id, class_id))
+                subjects = await cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -1068,7 +1072,7 @@ def get_subjects(
 
 
 @app.get("/chapter-content-list")
-def get_chapter_content_list(
+async def get_chapter_content_list(
     class_id: int = Query(..., ge=1),
     subject_id: int = Query(..., ge=1),
 ):
@@ -1088,7 +1092,10 @@ def get_chapter_content_list(
               AND content.subject_id = %s
               AND content.chapter_content_id IS NOT NULL
               AND NULLIF(BTRIM(content.content_title), '') IS NOT NULL
-              AND NULLIF(BTRIM(content.full_text_content), '') IS NOT NULL
+              AND (
+                  NULLIF(BTRIM(content.full_text_content), '') IS NOT NULL
+                  OR NULLIF(BTRIM(content.pdf_url), '') IS NOT NULL
+              )
               AND COALESCE(content.is_active, true) = true
               AND LOWER(COALESCE(content.record_status, 'Active')) = 'active'
             ORDER BY content.chapter_id, content.chapter_content_id DESC
@@ -1097,10 +1104,10 @@ def get_chapter_content_list(
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (class_id, subject_id))
-                chapters = cursor.fetchall()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (class_id, subject_id))
+                chapters = await cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -1113,7 +1120,7 @@ def get_chapter_content_list(
 
 
 @app.get("/study-materials")
-def get_study_materials(
+async def get_study_materials(
     chapter_content_id: int = Query(..., ge=1),
 ):
     query = """
@@ -1134,13 +1141,13 @@ def get_study_materials(
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(
                     query,
                     (STUDY_MATERIAL_ENTITY_TYPE, chapter_content_id),
                 )
-                rows = cursor.fetchall()
+                rows = await cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -1180,7 +1187,7 @@ def get_study_materials(
 
 
 @app.get("/quiz-chapters")
-def get_quiz_chapters():
+async def get_quiz_chapters():
     query = """
         SELECT DISTINCT ON (content.chapter_id)
             content.chapter_id,
@@ -1210,10 +1217,10 @@ def get_quiz_chapters():
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query)
-                chapters = cursor.fetchall()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query)
+                chapters = await cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -1226,7 +1233,7 @@ def get_quiz_chapters():
 
 
 @app.get("/notices")
-def get_notices(
+async def get_notices(
     student_class: str | None = Query(default=None, min_length=1),
 ):
     filters = ["COALESCE(record_status, 'Active') = 'Active'"]
@@ -1257,10 +1264,10 @@ def get_notices(
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, params)
-                notices = cursor.fetchall()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, params)
+                notices = await cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -1273,7 +1280,7 @@ def get_notices(
 
 
 @app.get("/notifications")
-def get_notifications():
+async def get_notifications():
     student_query = """
         SELECT
             student_id,
@@ -1334,18 +1341,18 @@ def get_notifications():
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(student_query)
-                student = cursor.fetchone()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(student_query)
+                student = await cursor.fetchone()
                 if student is None:
                     raise HTTPException(status_code=404, detail="No active student found.")
 
-                cursor.execute(assignment_query, (student["class_id"], date.today() + timedelta(days=7)))
-                assignment_rows = cursor.fetchall()
+                await cursor.execute(assignment_query, (student["class_id"], date.today() + timedelta(days=7)))
+                assignment_rows = await cursor.fetchall()
 
-                cursor.execute(notices_query, (student["class_name"],))
-                notice_rows = cursor.fetchall()
+                await cursor.execute(notices_query, (student["class_name"],))
+                notice_rows = await cursor.fetchall()
     except HTTPException:
         raise
     except psycopg.errors.UndefinedTable as error:
@@ -1381,7 +1388,7 @@ def get_notifications():
 
     assignment_alert_error = None
     try:
-        assignments = apply_ai_assignment_messages(assignments, student.get("student_email"))
+        assignments = await apply_ai_assignment_messages(assignments, student.get("student_email"))
     except RuntimeError as error:
         assignments = []
         assignment_alert_error = str(error)
@@ -1463,7 +1470,7 @@ def normalize_quiz_questions(raw_questions) -> list[dict]:
     return questions
 
 
-def fetch_chapter_for_quiz(chapter_id: int) -> dict:
+async def fetch_chapter_for_quiz(chapter_id: int) -> dict:
     query = """
         SELECT
             content.chapter_id,
@@ -1480,10 +1487,10 @@ def fetch_chapter_for_quiz(chapter_id: int) -> dict:
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (chapter_id,))
-                chapter = cursor.fetchone()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (chapter_id,))
+                chapter = await cursor.fetchone()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -1498,7 +1505,7 @@ def fetch_chapter_for_quiz(chapter_id: int) -> dict:
     return chapter
 
 
-def fetch_quiz_study_material_parts(chapter_id: int) -> tuple[list[dict], list[str]]:
+async def fetch_quiz_study_material_parts(chapter_id: int) -> tuple[list[dict], list[str]]:
     """Load a small, bounded set of chapter PDFs for Gemini's native document input."""
     query = """
         SELECT file_name, file_url
@@ -1512,10 +1519,10 @@ def fetch_quiz_study_material_parts(chapter_id: int) -> tuple[list[dict], list[s
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (chapter_id, STUDY_MATERIAL_ENTITY_TYPE))
-                rows = cursor.fetchall()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (chapter_id, STUDY_MATERIAL_ENTITY_TYPE))
+                rows = await cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -1560,9 +1567,9 @@ def fetch_quiz_study_material_parts(chapter_id: int) -> tuple[list[dict], list[s
 
 
 @app.post("/ai/generate-quiz")
-def generate_ai_quiz(payload: QuizGenerationInput):
-    chapter = fetch_chapter_for_quiz(payload.chapter_id)
-    resource_parts, source_files = fetch_quiz_study_material_parts(payload.chapter_id)
+async def generate_ai_quiz(payload: QuizGenerationInput):
+    chapter = await fetch_chapter_for_quiz(payload.chapter_id)
+    resource_parts, source_files = await fetch_quiz_study_material_parts(payload.chapter_id)
     content = str(chapter["full_text_content"])[:18000]
     if not resource_parts and not content.strip():
         raise HTTPException(status_code=404, detail="No study material is available for this chapter.")
@@ -1604,7 +1611,7 @@ def generate_ai_quiz(payload: QuizGenerationInput):
     """
 
     try:
-        quiz_data = gemini_generate_json(
+        quiz_data = await gemini_generate_json(
             prompt,
             module_name="Quizzes",
             feature_used="Quiz Generation",
@@ -1627,13 +1634,13 @@ def generate_ai_quiz(payload: QuizGenerationInput):
 
 
 @app.post("/quiz-results")
-def save_quiz_result(payload: QuizResultInput):
+async def save_quiz_result(payload: QuizResultInput):
     try:
-        student = fetch_current_student_record(payload.student_email)
+        student = await fetch_current_student_record(payload.student_email)
 
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(
                     """
                     SELECT subject_id
                     FROM sgs_chapter_content
@@ -1643,11 +1650,11 @@ def save_quiz_result(payload: QuizResultInput):
                     """,
                     (payload.chapter_id,),
                 )
-                chapter = cursor.fetchone()
+                chapter = await cursor.fetchone()
                 if chapter is None:
                     raise HTTPException(status_code=404, detail="Chapter content not found.")
 
-                cursor.execute(
+                await cursor.execute(
                     """
                     SELECT COALESCE(MAX(attempt_count), 0) + 1 AS next_attempt
                     FROM sgs_quiz_response
@@ -1657,10 +1664,10 @@ def save_quiz_result(payload: QuizResultInput):
                     """,
                     (student["student_id"], payload.chapter_id),
                 )
-                attempt = cursor.fetchone()
+                attempt = await cursor.fetchone()
                 attempt_count = int(attempt["next_attempt"] or 1)
 
-                cursor.execute(
+                await cursor.execute(
                     """
                     INSERT INTO sgs_quiz_response (
                         student_id,
@@ -1691,8 +1698,8 @@ def save_quiz_result(payload: QuizResultInput):
                         attempt_count,
                     ),
                 )
-                saved_result = cursor.fetchone()
-            connection.commit()
+                saved_result = await cursor.fetchone()
+            await connection.commit()
     except HTTPException:
         raise
     except psycopg.errors.UndefinedTable as error:
@@ -1707,9 +1714,9 @@ def save_quiz_result(payload: QuizResultInput):
 
 
 @app.post("/ai/generate-mock-test")
-def generate_ai_mock_test(payload: MockTestGenerationInput):
+async def generate_ai_mock_test(payload: MockTestGenerationInput):
     question_count = 5
-    chapter = fetch_chapter_for_quiz(payload.chapter_id)
+    chapter = await fetch_chapter_for_quiz(payload.chapter_id)
     content = str(chapter["full_text_content"])[:18000]
     prompt = f"""
         You are an expert school examiner. Generate exactly {question_count} multiple-choice
@@ -1740,7 +1747,7 @@ def generate_ai_mock_test(payload: MockTestGenerationInput):
     """
 
     try:
-        quiz_data = gemini_generate_json(
+        quiz_data = await gemini_generate_json(
             prompt,
             module_name="Assessments",
             feature_used="Mock Test Generation",
@@ -1768,7 +1775,7 @@ def generate_ai_mock_test(payload: MockTestGenerationInput):
 
 
 @app.post("/ai/translate-text")
-def translate_text(payload: TextTranslationInput):
+async def translate_text(payload: TextTranslationInput):
     source_language = payload.source_language or "auto-detect"
     source_text = payload.text.strip()[:12000]
     if not source_text:
@@ -1792,7 +1799,7 @@ def translate_text(payload: TextTranslationInput):
     """
 
     try:
-        translation_data = gemini_generate_json(
+        translation_data = await gemini_generate_json(
             prompt,
             max_output_tokens=3072,
             module_name="AI Translator",
@@ -1814,7 +1821,7 @@ def translate_text(payload: TextTranslationInput):
 
 
 @app.post("/ai/translate-batch")
-def translate_text_batch(payload: TextTranslationBatchInput):
+async def translate_text_batch(payload: TextTranslationBatchInput):
     source_language = payload.source_language or "auto-detect"
     cleaned_texts = [str(text).strip()[:3000] for text in payload.texts if str(text).strip()]
     if not cleaned_texts:
@@ -1839,7 +1846,7 @@ def translate_text_batch(payload: TextTranslationBatchInput):
     """
 
     try:
-        translation_data = gemini_generate_json(
+        translation_data = await gemini_generate_json(
             prompt,
             max_output_tokens=4096,
             module_name="AI Translator",
@@ -1864,7 +1871,7 @@ def translate_text_batch(payload: TextTranslationBatchInput):
     }
 
 
-def build_learning_profile_payload(profile: LearningProfileInput):
+async def build_learning_profile_payload(profile: LearningProfileInput):
     classification = classify_reader(
         profile.reading_time_minutes,
         profile.quiz_score,
@@ -1878,11 +1885,11 @@ def build_learning_profile_payload(profile: LearningProfileInput):
         "comprehension_score": profile.comprehension_score,
     }
     try:
-        path = get_learning_path_generator().generate_path(
+        path = await get_learning_path_generator().generate_path(
             profile.chapter_title,
             classification,
             metrics,
-            user_email=fetch_student_email(profile.student_id),
+            user_email=await fetch_student_email(profile.student_id),
         )
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
@@ -1901,7 +1908,7 @@ def normalize_percent(value) -> float:
     return round(min(numeric_value, 100), 2)
 
 
-def calculate_performance_summary(student_id: int) -> dict:
+async def calculate_performance_summary(student_id: int) -> dict:
     query = """
         SELECT
             (
@@ -1930,10 +1937,10 @@ def calculate_performance_summary(student_id: int) -> dict:
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, {"student_id": student_id})
-                row = cursor.fetchone() or {}
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, {"student_id": student_id})
+                row = await cursor.fetchone() or {}
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -1958,18 +1965,18 @@ def calculate_performance_summary(student_id: int) -> dict:
 
 
 @app.get("/student-performance-summary")
-def get_student_performance_summary(
+async def get_student_performance_summary(
     student_id: int = Query(..., ge=1),
 ):
-    return calculate_performance_summary(student_id)
+    return await calculate_performance_summary(student_id)
 
 
 @app.get("/student-analysis")
-def get_student_analysis(
+async def get_student_analysis(
     email: str = Query(..., min_length=3, max_length=150),
 ):
     """Return assessment analytics for the student identified by the login email."""
-    student = fetch_current_student_record(email)
+    student = await fetch_current_student_record(email)
     query = """
         SELECT
             assessment.assessment_id,
@@ -1999,10 +2006,10 @@ def get_student_analysis(
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (student["student_id"],))
-                rows = cursor.fetchall()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (student["student_id"],))
+                rows = await cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -2112,7 +2119,7 @@ def get_student_analysis(
 
 
 @app.post("/learning-path/generate-overall")
-def generate_overall_learning_path(payload: PerformanceLearningPathInput):
+async def generate_overall_learning_path(payload: PerformanceLearningPathInput):
     metrics = {
         "assignment_marks": round(payload.assignment_marks, 2),
         "quiz_score": round(payload.quiz_score, 2),
@@ -2122,11 +2129,11 @@ def generate_overall_learning_path(payload: PerformanceLearningPathInput):
     classification = classify_performance(**metrics)
 
     try:
-        path = get_learning_path_generator().generate_path(
+        path = await get_learning_path_generator().generate_path(
             "Overall Performance",
             classification,
             metrics,
-            user_email=fetch_student_email(payload.student_id),
+            user_email=await fetch_student_email(payload.student_id),
         )
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
@@ -2140,8 +2147,8 @@ def generate_overall_learning_path(payload: PerformanceLearningPathInput):
 
 
 @app.post("/ai/generate-study-content")
-def generate_study_content(payload: StudyContentGenerationInput):
-    performance = calculate_performance_summary(payload.student_id)
+async def generate_study_content(payload: StudyContentGenerationInput):
+    performance = await calculate_performance_summary(payload.student_id)
     classification = payload.classification or performance["classification"]
 
     query = """
@@ -2157,10 +2164,10 @@ def generate_study_content(payload: StudyContentGenerationInput):
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (payload.chapter_content_id,))
-                chapter = cursor.fetchone()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (payload.chapter_content_id,))
+                chapter = await cursor.fetchone()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -2200,12 +2207,12 @@ def generate_study_content(payload: StudyContentGenerationInput):
     """
 
     try:
-        generated_content = gemini_generate_json(
+        generated_content = await gemini_generate_json(
             prompt,
             max_output_tokens=4096,
             module_name="AI Learning Path",
             feature_used="Study Content Generation",
-            user_email=fetch_student_email(payload.student_id),
+            user_email=await fetch_student_email(payload.student_id),
         )
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
@@ -2220,7 +2227,7 @@ def generate_study_content(payload: StudyContentGenerationInput):
 
 
 @app.get("/chapter-content")
-def get_chapter_content(
+async def get_chapter_content(
     chapter_content_id: int | None = Query(default=None, ge=1),
     subject: str | None = Query(default=None, min_length=1),
     lesson: str | None = Query(default=None, min_length=1),
@@ -2233,19 +2240,23 @@ def get_chapter_content(
                 class_id,
                 subject_id,
                 content_title,
-                full_text_content
+                full_text_content,
+                content_format,
+                pdf_url
             FROM sgs_chapter_content
             WHERE chapter_content_id = %s
-              AND full_text_content IS NOT NULL
-              AND BTRIM(full_text_content) <> ''
+              AND (
+                  NULLIF(BTRIM(full_text_content), '') IS NOT NULL
+                  OR NULLIF(BTRIM(pdf_url), '') IS NOT NULL
+              )
             LIMIT 1;
         """
 
         try:
-            with get_connection() as connection:
-                with connection.cursor(row_factory=dict_row) as cursor:
-                    cursor.execute(query, (chapter_content_id,))
-                    row = cursor.fetchone()
+            async with get_connection() as connection:
+                async with connection.cursor(row_factory=dict_row) as cursor:
+                    await cursor.execute(query, (chapter_content_id,))
+                    row = await cursor.fetchone()
         except psycopg.errors.UndefinedTable as error:
             raise HTTPException(
                 status_code=500,
@@ -2262,6 +2273,19 @@ def get_chapter_content(
                 status_code=404,
                 detail="No chapter content found for this selection.",
             )
+
+        pdf_url = str(row.get("pdf_url") or "").strip()
+        if pdf_url:
+            try:
+                file_name = f"{row.get('content_title') or 'chapter'}.pdf"
+                view_url, download_url = create_material_urls(pdf_url, file_name)
+            except (ValueError, BotoCoreError, ClientError) as error:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Unable to prepare the chapter PDF for viewing.",
+                ) from error
+            row["view_url"] = view_url
+            row["download_url"] = download_url
 
         return row
 
@@ -2295,10 +2319,10 @@ def get_chapter_content(
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query)
-                row = cursor.fetchone()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query)
+                row = await cursor.fetchone()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -2324,9 +2348,9 @@ def get_chapter_content(
 
 
 @app.post("/learning-path/generate")
-def generate_learning_path(profile: LearningProfileInput):
+async def generate_learning_path(profile: LearningProfileInput):
     """Return an AI learning path without saving it."""
-    classification, path = build_learning_profile_payload(profile)
+    classification, path = await build_learning_profile_payload(profile)
 
     return {
         "student_id": profile.student_id,
@@ -2337,9 +2361,9 @@ def generate_learning_path(profile: LearningProfileInput):
 
 
 @app.post("/student-learning-profile")
-def save_student_learning_profile(profile: LearningProfileInput):
+async def save_student_learning_profile(profile: LearningProfileInput):
     """Save the latest learning profile for a student/chapter pair."""
-    classification, path = build_learning_profile_payload(profile)
+    classification, path = await build_learning_profile_payload(profile)
 
     query = """
         INSERT INTO sgs_student_learning_profiles (
@@ -2368,9 +2392,9 @@ def save_student_learning_profile(profile: LearningProfileInput):
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(
                     query,
                     (
                         profile.student_id,
@@ -2384,8 +2408,8 @@ def save_student_learning_profile(profile: LearningProfileInput):
                         Jsonb(path),
                     ),
                 )
-                saved_profile = cursor.fetchone()
-                connection.commit()
+                saved_profile = await cursor.fetchone()
+                await connection.commit()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,
@@ -2404,7 +2428,7 @@ def save_student_learning_profile(profile: LearningProfileInput):
 
 
 @app.get("/student-learning-profile")
-def get_student_learning_profile(
+async def get_student_learning_profile(
     student_id: int = Query(..., ge=1),
     chapter_id: int = Query(..., ge=1),
 ):
@@ -2416,10 +2440,10 @@ def get_student_learning_profile(
     """
 
     try:
-        with get_connection() as connection:
-            with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (student_id, chapter_id))
-                profile = cursor.fetchone()
+        async with get_connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (student_id, chapter_id))
+                profile = await cursor.fetchone()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
             status_code=500,

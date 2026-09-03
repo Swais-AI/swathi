@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import AppSelect from "./app-select";
 import { getApiBaseUrl } from "./api-base-url";
 
 const API_BASE_URL = getApiBaseUrl();
@@ -23,6 +24,8 @@ export default function ChapterSelector({ showReader = false }) {
   const [isReading, setIsReading] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
+  const speechChunksRef = useRef([]);
+  const speechIndexRef = useRef(0);
 
   const paragraphs = useMemo(() => {
     if (!chapterContent?.full_text_content) {
@@ -35,11 +38,15 @@ export default function ChapterSelector({ showReader = false }) {
       .filter(Boolean);
   }, [chapterContent]);
 
+  const isPdfContent = Boolean(chapterContent?.view_url);
+
   useEffect(() => {
     setSpeechSupported(typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
 
     return () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        speechChunksRef.current = [];
+        speechIndexRef.current = 0;
         window.speechSynthesis.cancel();
       }
     };
@@ -200,37 +207,86 @@ export default function ChapterSelector({ showReader = false }) {
 
   useEffect(() => {
     if (speechSupported) {
+      speechChunksRef.current = [];
+      speechIndexRef.current = 0;
       window.speechSynthesis.cancel();
       setIsReading(false);
       setIsPaused(false);
     }
   }, [chapterContent, speechSupported]);
 
+  function buildSpeechChunks(text) {
+    const cleanText = text.replace(/\s+/g, " ").trim();
+    const sentences = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleanText];
+    const chunks = [];
+    let currentChunk = "";
+
+    sentences.forEach((sentence) => {
+      const cleanSentence = sentence.trim();
+      if (!cleanSentence) {
+        return;
+      }
+
+      if ((currentChunk + " " + cleanSentence).trim().length > 1200) {
+        if (currentChunk) {
+          chunks.push(currentChunk);
+        }
+        currentChunk = cleanSentence;
+      } else {
+        currentChunk = `${currentChunk} ${cleanSentence}`.trim();
+      }
+    });
+
+    if (currentChunk) {
+      chunks.push(currentChunk);
+    }
+
+    return chunks;
+  }
+
+  function speakChunk(index) {
+    if (!speechSupported || index >= speechChunksRef.current.length) {
+      speechChunksRef.current = [];
+      speechIndexRef.current = 0;
+      setIsReading(false);
+      setIsPaused(false);
+      return;
+    }
+
+    speechIndexRef.current = index;
+    const utterance = new SpeechSynthesisUtterance(speechChunksRef.current[index]);
+    utterance.lang = "en-IN";
+    utterance.rate = 0.92;
+    utterance.pitch = 1;
+
+    utterance.onend = () => {
+      speakChunk(index + 1);
+    };
+
+    utterance.onerror = () => {
+      speechChunksRef.current = [];
+      speechIndexRef.current = 0;
+      setIsReading(false);
+      setIsPaused(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }
+
   function handleReadAloud() {
-    if (!speechSupported || !chapterContent) {
+    if (!speechSupported || !chapterContent || isPdfContent) {
       return;
     }
 
     window.speechSynthesis.cancel();
 
     const textToRead = `${chapterContent.content_title}. ${chapterContent.full_text_content}`;
-    const utterance = new SpeechSynthesisUtterance(textToRead);
-    utterance.lang = "en-IN";
-    utterance.rate = 0.92;
-    utterance.pitch = 1;
-
-    utterance.onend = () => {
-      setIsReading(false);
-      setIsPaused(false);
-    };
-    utterance.onerror = () => {
-      setIsReading(false);
-      setIsPaused(false);
-    };
+    speechChunksRef.current = buildSpeechChunks(textToRead);
+    speechIndexRef.current = 0;
 
     setIsReading(true);
     setIsPaused(false);
-    window.speechSynthesis.speak(utterance);
+    window.setTimeout(() => speakChunk(0), 0);
   }
 
   function handlePauseResume() {
@@ -253,6 +309,8 @@ export default function ChapterSelector({ showReader = false }) {
     }
 
     window.speechSynthesis.cancel();
+    speechChunksRef.current = [];
+    speechIndexRef.current = 0;
     setIsReading(false);
     setIsPaused(false);
   }
@@ -297,58 +355,43 @@ export default function ChapterSelector({ showReader = false }) {
   return (
     <>
       <form className="chapter-selector chapter-page-selector" aria-label="Chapter selection" onSubmit={handleSubmit}>
-        <select
+        <AppSelect
           value={selectedClass}
-          aria-label="Select class"
-          onChange={(event) => setSelectedClass(event.target.value)}
-          disabled={loadingClasses}
-        >
-          <option value="" disabled>
-            {loadingClasses ? "Loading Classes..." : "Select Class..."}
-          </option>
-          {classes.map((classItem) => {
+          options={classes.map((classItem) => {
             const sectionLabel = classItem.section_name ? ` - ${classItem.section_name}` : "";
             const yearLabel = classItem.academic_year ? ` (${classItem.academic_year})` : "";
-            return (
-              <option value={classItem.class_id} key={classItem.class_id}>
-                {classItem.class_name}{sectionLabel}{yearLabel}
-              </option>
-            );
+            return { value: classItem.class_id, label: `${classItem.class_name}${sectionLabel}${yearLabel}` };
           })}
-        </select>
-        <select
+          ariaLabel="Select class"
+          onChange={setSelectedClass}
+          disabled={loadingClasses}
+          placeholder={loadingClasses ? "Loading Classes..." : "Select Class..."}
+          searchable
+          className="chapter-app-select"
+        />
+        <AppSelect
           value={selectedSubject}
-          aria-label="Select subject"
-          onChange={(event) => setSelectedSubject(event.target.value)}
+          options={subjects.map((subject) => ({ value: subject.subject_id, label: subject.subject_name }))}
+          ariaLabel="Select subject"
+          onChange={setSelectedSubject}
           disabled={!selectedClass || loadingSubjects}
-        >
-          <option value="" disabled>
-            {loadingSubjects ? "Loading Subjects..." : "Select Subject..."}
-          </option>
-          {subjects.map((subject) => (
-            <option value={subject.subject_id} key={subject.subject_id}>
-              {subject.subject_name}
-            </option>
-          ))}
-        </select>
-        <select
+          placeholder={loadingSubjects ? "Loading Subjects..." : "Select Subject..."}
+          searchable
+          className="chapter-app-select"
+        />
+        <AppSelect
           value={selectedChapter}
-          aria-label="Select chapter"
-          onChange={(event) => {
-            setSelectedChapter(event.target.value);
+          options={chapters.map((chapter) => ({ value: chapter.chapter_content_id, label: chapter.content_title }))}
+          ariaLabel="Select chapter"
+          onChange={(value) => {
+            setSelectedChapter(value);
             setChapterContent(null);
           }}
           disabled={!selectedSubject || loadingChapters}
-        >
-          <option value="" disabled>
-            {loadingChapters ? "Loading Chapters..." : "Select Book Title..."}
-          </option>
-          {chapters.map((chapter) => (
-            <option value={chapter.chapter_content_id} key={chapter.chapter_content_id}>
-              {chapter.content_title}
-            </option>
-          ))}
-        </select>
+          placeholder={loadingChapters ? "Loading Chapters..." : "Select Book Title..."}
+          searchable
+          className="chapter-app-select chapter-title-app-select"
+        />
         <button type="submit" disabled={loading || loadingClasses || loadingSubjects || loadingChapters}>
           {loading ? "Loading" : "Go"}
         </button>
@@ -374,26 +417,48 @@ export default function ChapterSelector({ showReader = false }) {
             <article className="chapter-content-card">
               <div className="chapter-content-header">
                 <h2>{chapterContent.content_title}</h2>
-                <div className="chapter-audio-controls" aria-label="Chapter audio controls">
-                  <button type="button" onClick={handleReadAloud} disabled={!speechSupported}>
-                    {isReading ? "Restart Audio" : "Read Aloud"}
-                  </button>
-                  <button type="button" onClick={handlePauseResume} disabled={!speechSupported || !isReading}>
-                    {isPaused ? "Resume" : "Pause"}
-                  </button>
-                  <button type="button" onClick={handleStopReading} disabled={!speechSupported || !isReading}>
-                    Stop
-                  </button>
-                </div>
-              </div>
-              {!speechSupported && <p className="chapter-audio-note">Audio reading is not supported in this browser.</p>}
-              <div className="chapter-text">
-                {paragraphs.length > 0 ? (
-                  paragraphs.map((paragraph, index) => <p key={`${paragraph.slice(0, 18)}-${index}`}>{paragraph}</p>)
-                ) : (
-                  <p>{chapterContent.full_text_content}</p>
+                {!isPdfContent && (
+                  <div className="chapter-audio-controls" aria-label="Chapter audio controls">
+                    <button type="button" onClick={handleReadAloud} disabled={!speechSupported}>
+                      {isReading ? "Restart Audio" : "Read Aloud"}
+                    </button>
+                    <button type="button" onClick={handlePauseResume} disabled={!speechSupported || !isReading}>
+                      {isPaused ? "Resume" : "Pause"}
+                    </button>
+                    <button type="button" onClick={handleStopReading} disabled={!speechSupported || !isReading}>
+                      Stop
+                    </button>
+                  </div>
                 )}
               </div>
+              {!isPdfContent && !speechSupported && (
+                <p className="chapter-audio-note">Audio reading is not supported in this browser.</p>
+              )}
+              {isPdfContent ? (
+                <div className="chapter-pdf-container">
+                  <iframe
+                    src={chapterContent.view_url}
+                    title={`${chapterContent.content_title} PDF`}
+                    className="chapter-pdf-frame"
+                  />
+                  <div className="chapter-pdf-actions">
+                    <a href={chapterContent.view_url} target="_blank" rel="noopener noreferrer">
+                      Open PDF in new tab
+                    </a>
+                    {chapterContent.download_url && (
+                      <a href={chapterContent.download_url}>Download PDF</a>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="chapter-text">
+                  {paragraphs.length > 0 ? (
+                    paragraphs.map((paragraph, index) => <p key={`${paragraph.slice(0, 18)}-${index}`}>{paragraph}</p>)
+                  ) : (
+                    <p>{chapterContent.full_text_content}</p>
+                  )}
+                </div>
+              )}
             </article>
           )}
         </div>
