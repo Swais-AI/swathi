@@ -3,9 +3,6 @@ import os
 from typing import Any, Mapping
 
 import psycopg
-from psycopg_pool import PoolTimeout
-
-from database import database_connection
 
 
 logger = logging.getLogger(__name__)
@@ -65,7 +62,7 @@ def log_ai_usage(
     )
 
     try:
-        with database_connection() as connection:
+        with psycopg.connect(database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -92,6 +89,6 @@ def log_ai_usage(
                 )
             connection.commit()
         return True
-    except (psycopg.Error, PoolTimeout, ValueError, TypeError) as error:
+    except (psycopg.Error, ValueError, TypeError) as error:
         logger.warning("Unable to write sgs_ai_usage_logs: %s", error)
         return False
