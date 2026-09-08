@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import logging
 import mimetypes
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -27,6 +28,7 @@ from utils.ai_tracker import log_ai_usage
 
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
+logger = logging.getLogger(__name__)
 app = FastAPI(title="SGS Chapter Content API")
 
 
@@ -121,6 +123,7 @@ class TextTranslationInput(BaseModel):
 
 class AssignmentSubmissionInput(BaseModel):
     assignment_id: int = Field(..., ge=1)
+    student_email: str | None = Field(default=None, min_length=3, max_length=150)
     file_name: str = Field(..., min_length=1, max_length=255)
     file_type: str | None = Field(default=None, max_length=160)
     file_size: int = Field(..., ge=1, le=10 * 1024 * 1024)
@@ -495,25 +498,14 @@ def get_current_student(
     return {"student": student}
 
 
-def ensure_assignment_submission_columns(cursor) -> None:
-    cursor.execute(
-        """
-        ALTER TABLE sgs_assignment_results
-        ADD COLUMN IF NOT EXISTS submitted_file_name VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS submitted_file_type VARCHAR(160),
-        ADD COLUMN IF NOT EXISTS submitted_file_size BIGINT,
-        ADD COLUMN IF NOT EXISTS submitted_file_content BYTEA;
-        """
-    )
-
-
 @app.get("/assignments/current")
-def get_current_assignments():
+def get_current_assignments(
+    email: str | None = Query(default=None, min_length=3, max_length=150),
+):
     try:
-        student = fetch_current_student_record()
+        student = fetch_current_student_record(email)
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                ensure_assignment_submission_columns(cursor)
                 cursor.execute(
                     """
                     SELECT
@@ -533,10 +525,11 @@ def get_current_assignments():
                       ON r.assignment_id = a.assignment_id
                      AND r.student_id = %s
                      AND COALESCE(r.record_status, 'ACTIVE') = 'ACTIVE'
-                    WHERE COALESCE(a.record_status, 'Active') = 'Active'
+                    WHERE (%s::bigint IS NULL OR a.class_id = %s)
+                      AND COALESCE(a.record_status, 'Active') = 'Active'
                     ORDER BY a.due_date ASC NULLS LAST, a.assignment_id DESC
                     """,
-                    (student["student_id"],),
+                    (student["student_id"], student["class_id"], student["class_id"]),
                 )
                 assignments = cursor.fetchall()
 
@@ -561,16 +554,19 @@ def get_current_assignments():
                     )
                     attachment_rows = cursor.fetchall()
     except psycopg.errors.UndefinedColumn as error:
+        logger.exception("Assignment query references a missing database column.")
         raise HTTPException(
             status_code=500,
-            detail="Assignment submission columns are missing. Submit one assignment once to initialize columns.",
+            detail="Assignment submission columns are missing. Run the assignment schema migration.",
         ) from error
     except psycopg.errors.UndefinedTable as error:
+        logger.exception("Assignment query references a missing database table.")
         raise HTTPException(
             status_code=500,
             detail="Assignment tables are missing. Confirm sgs_assignment_master and sgs_assignment_results exist.",
         ) from error
     except psycopg.Error as error:
+        logger.exception("Unable to fetch assignments from PostgreSQL.")
         raise HTTPException(status_code=500, detail="Unable to fetch assignments.") from error
 
     attachments_by_assignment: dict[int, list[dict]] = {}
@@ -629,19 +625,19 @@ def submit_assignment(payload: AssignmentSubmissionInput):
         raise HTTPException(status_code=400, detail="Uploaded file size does not match file metadata.")
 
     try:
-        student = fetch_current_student_record()
+        student = fetch_current_student_record(payload.student_email)
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                ensure_assignment_submission_columns(cursor)
                 cursor.execute(
                     """
                     SELECT assignment_id, assignment_title, due_date, subject_id
                     FROM sgs_assignment_master
                     WHERE assignment_id = %s
+                      AND (%s::bigint IS NULL OR class_id = %s)
                       AND COALESCE(record_status, 'Active') = 'Active'
                     LIMIT 1;
                     """,
-                    (payload.assignment_id,),
+                    (payload.assignment_id, student["class_id"], student["class_id"]),
                 )
                 assignment = cursor.fetchone()
                 if assignment is None:
