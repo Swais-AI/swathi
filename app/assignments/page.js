@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getApiBaseUrl } from "../api-base-url";
 import DashboardShell from "../dashboard-shell";
+import { getLoggedInUserEmail } from "../login-session";
 import StudyTabs from "../study-tabs";
 
 const API_BASE_URL = getApiBaseUrl();
@@ -83,7 +84,11 @@ export default function AssignmentsPage() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/assignments/current`);
+      const studentEmail = await getLoggedInUserEmail();
+      const params = new URLSearchParams();
+      if (studentEmail) params.set("email", studentEmail);
+      const query = params.toString();
+      const response = await fetch(`${API_BASE_URL}/assignments/current${query ? `?${query}` : ""}`);
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
@@ -170,6 +175,7 @@ export default function AssignmentsPage() {
     setError("");
 
     try {
+      const studentEmail = await getLoggedInUserEmail();
       const fileContentBase64 = await fileToBase64(selectedFile);
       const response = await fetch(`${API_BASE_URL}/assignments/submit`, {
         method: "POST",
@@ -178,6 +184,7 @@ export default function AssignmentsPage() {
         },
         body: JSON.stringify({
           assignment_id: selectedAssignment.assignment_id,
+          student_email: studentEmail,
           file_name: selectedFile.name,
           file_type: selectedFile.type || "application/octet-stream",
           file_size: selectedFile.size,
