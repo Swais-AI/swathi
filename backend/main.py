@@ -503,7 +503,17 @@ def get_current_assignments(
     email: str | None = Query(default=None, min_length=3, max_length=150),
 ):
     try:
-        student = fetch_current_student_record(email)
+        try:
+            student = fetch_current_student_record(email)
+        except HTTPException as error:
+            if error.status_code != 404:
+                raise
+            # Student records are not available yet. Keep assignment listing
+            # usable, but leave submissions protected by their student lookup.
+            student = None
+
+        student_id = student["student_id"] if student else None
+        class_id = student["class_id"] if student else None
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
@@ -529,7 +539,7 @@ def get_current_assignments(
                       AND COALESCE(a.record_status, 'Active') = 'Active'
                     ORDER BY a.due_date ASC NULLS LAST, a.assignment_id DESC
                     """,
-                    (student["student_id"], student["class_id"], student["class_id"]),
+                    (student_id, class_id, class_id),
                 )
                 assignments = cursor.fetchall()
 
