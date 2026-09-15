@@ -72,7 +72,6 @@ export default function AssignmentsPage() {
   const [assignments, setAssignments] = useState([]);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-  const [showAiSummary, setShowAiSummary] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -119,7 +118,6 @@ export default function AssignmentsPage() {
   function selectAssignment(assignment) {
     setSelectedAssignment(assignment);
     setSelectedFile(null);
-    setShowAiSummary(false);
     setMessage("");
     setError("");
     window.setTimeout(() => uploadCardRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
@@ -260,15 +258,6 @@ export default function AssignmentsPage() {
                 <span>Assignment ID: {selectedAssignment?.assignment_id || "-"}</span>
               </div>
               <p>{selectedAssignment?.assignment_text || "Choose an assignment from the list to upload your work."}</p>
-              <div className="quiz-submit-row assignment-ai-row">
-                <button className="primary-button" type="button" onClick={() => setShowAiSummary(true)} disabled={!selectedAssignment}>Ask AI</button>
-              </div>
-              {showAiSummary && selectedAssignment && (
-                <div className="assignment-ai-summary">
-                  <strong>AI Summary</strong>
-                  <p>{selectedAssignment.assignment_text || "Read the assignment title carefully, prepare your response, and upload the completed file before the due date."}</p>
-                </div>
-              )}
               <div
                 className="upload-zone"
                 onDragOver={(event) => event.preventDefault()}
