@@ -176,7 +176,7 @@ button {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #9aa9c7;
+  color: #ff473d;
   cursor: pointer;
   font-size: 16px;
   font-weight: 500;
@@ -187,7 +187,7 @@ button {
 .logout-link:hover,
 .logout-link:focus-visible {
   background: rgba(148, 163, 184, 0.09);
-  color: #d8e1f2;
+  color: #ff6b63;
   outline: none;
 }
 
