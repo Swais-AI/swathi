@@ -37,8 +37,7 @@ function getLoginServiceUrl() {
   return typeof window !== "undefined" ? window.location.origin : "";
 }
 
-async function handleLogout(event) {
-  event.preventDefault();
+async function handleLogout() {
   window.localStorage.clear();
   window.sessionStorage.clear();
   const loginServiceUrl = getLoginServiceUrl();
@@ -161,6 +160,8 @@ function DashboardShellFrame({ children }) {
   const currentPath = withoutBasePath(pathname);
   const { language, languageOptions, setLanguage } = useLanguage();
   const student = useCurrentStudent();
+  const [showLogoutConfirmation, setShowLogoutConfirmation] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const studentName = student?.full_name || "Student";
   const admissionNo = student?.admission_no || "-";
   const rollNo = student?.roll_no || "-";
@@ -173,6 +174,24 @@ function DashboardShellFrame({ children }) {
     }
 
     return currentPath === href || currentPath.startsWith(`${href}/`);
+  }
+
+  useEffect(() => {
+    if (!showLogoutConfirmation) return undefined;
+
+    function closeOnEscape(event) {
+      if (event.key === "Escape" && !isLoggingOut) {
+        setShowLogoutConfirmation(false);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showLogoutConfirmation, isLoggingOut]);
+
+  async function confirmLogout() {
+    setIsLoggingOut(true);
+    await handleLogout();
   }
 
   return (
@@ -204,10 +223,10 @@ function DashboardShellFrame({ children }) {
 
         <div className="nav-divider" />
 
-        <a className="nav-item logout-link" href={configuredLoginServiceUrl || "/"} onClick={handleLogout}>
+        <button className="nav-item logout-link" type="button" onClick={() => setShowLogoutConfirmation(true)}>
           <Icon name="power" />
           <span>Logout</span>
-        </a>
+        </button>
       </aside>
 
       <section className="workspace">
@@ -246,6 +265,28 @@ function DashboardShellFrame({ children }) {
         <LanguagePageTranslator />
         {children}
       </section>
+
+      {showLogoutConfirmation && (
+        <div className="logout-modal-backdrop" role="presentation" onMouseDown={() => !isLoggingOut && setShowLogoutConfirmation(false)}>
+          <section
+            className="logout-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="logout-modal-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="logout-modal-icon"><Icon name="power" /></div>
+            <h2 id="logout-modal-title">Ready to log out?</h2>
+            <p>You&apos;ll need to sign in again to access your student dashboard.</p>
+            <div className="logout-modal-actions">
+              <button className="logout-cancel-button" type="button" onClick={() => setShowLogoutConfirmation(false)} disabled={isLoggingOut}>Stay logged in</button>
+              <button className="logout-confirm-button" type="button" onClick={confirmLogout} disabled={isLoggingOut}>
+                {isLoggingOut ? "Logging out..." : "Yes, log out"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

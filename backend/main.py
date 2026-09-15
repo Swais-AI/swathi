@@ -1163,6 +1163,7 @@ def normalize_quiz_questions(raw_questions) -> list[dict]:
         raise ValueError("Quiz response must include a quiz array.")
 
     questions = []
+    seen_questions: set[str] = set()
     for raw_item in raw_questions:
         if not isinstance(raw_item, dict):
             continue
@@ -1188,9 +1189,20 @@ def normalize_quiz_questions(raw_questions) -> list[dict]:
                 if option.casefold() == normalized_answer:
                     answer_index = index
                     break
+            if answer_index is None:
+                compact_answer = normalized_answer.replace("option", "").strip(" .):-")
+                if compact_answer in {"a", "b", "c", "d"}:
+                    answer_index = ord(compact_answer) - ord("a")
+                elif compact_answer in {"1", "2", "3", "4"}:
+                    answer_index = int(compact_answer) - 1
 
         if answer_index is None:
             continue
+
+        question_key = " ".join(question.casefold().split())
+        if question_key in seen_questions:
+            continue
+        seen_questions.add(question_key)
 
         questions.append(
             {
@@ -1454,10 +1466,23 @@ def save_quiz_result(payload: QuizResultInput):
 def generate_ai_mock_test(payload: MockTestGenerationInput):
     question_count = 5
     chapter = fetch_chapter_for_quiz(payload.chapter_id)
+    resource_parts, source_files = fetch_quiz_study_material_parts(payload.chapter_id)
     content = str(chapter["full_text_content"])[:18000]
+    if not resource_parts and not content.strip():
+        raise HTTPException(status_code=404, detail="No study material is available for this chapter.")
+
+    source_instruction = (
+        "Use the attached PDF study materials as the primary and authoritative source. "
+        "Do not create questions about facts that are not supported by those PDFs."
+        if resource_parts
+        else "Use only the chapter content supplied below."
+    )
     prompt = f"""
         You are an expert school examiner. Generate exactly {question_count} multiple-choice
-        mock-test questions from the chapter content below.
+        mock-test questions for the selected chapter: {chapter["chapter_title"]}.
+
+        Source rule:
+        {source_instruction}
 
         Return only valid JSON in this exact shape:
         {{
@@ -1476,6 +1501,9 @@ def generate_ai_mock_test(payload: MockTestGenerationInput):
         - Use exactly 4 options per question and make only one option correct.
         - Include 2 easy, 2 medium, and 1 challenging question.
         - Test understanding and application, not only memorization.
+        - Every question must test a different concept from this selected chapter.
+        - Do not repeat or paraphrase the same question.
+        - Do not reuse generic questions that could apply to another chapter.
         - Keep language clear and appropriate for a school student.
         - Do not include markdown or extra text.
 
@@ -1489,6 +1517,8 @@ def generate_ai_mock_test(payload: MockTestGenerationInput):
             module_name="Assessments",
             feature_used="Mock Test Generation",
             user_email=payload.user_email,
+            resource_parts=resource_parts,
+            max_output_tokens=6144,
         )
         questions = normalize_quiz_questions(quiz_data.get("quiz"))
     except RuntimeError as error:
@@ -1507,6 +1537,8 @@ def generate_ai_mock_test(payload: MockTestGenerationInput):
         "chapter_title": chapter["chapter_title"],
         "question_count": question_count,
         "duration_minutes": 15,
+        "resource_count": len(source_files),
+        "source_files": source_files,
         "quiz": questions[:question_count],
     }
 

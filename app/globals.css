@@ -169,7 +169,133 @@ button {
 }
 
 .logout-link {
+  width: 100%;
+  border: 0;
+  background: transparent;
   color: #ff473d;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.logout-link:hover,
+.logout-link:focus-visible {
+  background: rgba(255, 71, 61, 0.12);
+  outline: none;
+}
+
+.logout-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 10, 25, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.logout-modal {
+  width: min(440px, 100%);
+  padding: 32px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 24px;
+  background: linear-gradient(145deg, #ffffff, #f5f8ff);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.38);
+  color: #101a3b;
+  text-align: center;
+}
+
+.logout-modal-icon {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 18px;
+  border-radius: 20px;
+  background: #fff0ef;
+  color: #e5372f;
+}
+
+.logout-modal-icon .icon {
+  width: 28px;
+  height: 28px;
+}
+
+.logout-modal h2 {
+  margin: 0 0 10px;
+  font-size: 28px;
+}
+
+.logout-modal p {
+  margin: 0;
+  color: #526078;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.logout-modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.logout-modal-actions button {
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.logout-cancel-button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #26324c;
+}
+
+.logout-confirm-button {
+  border: 1px solid #e5372f;
+  background: linear-gradient(135deg, #f04b43, #d92d27);
+  box-shadow: 0 10px 24px rgba(217, 45, 39, 0.24);
+  color: #fff;
+}
+
+.logout-modal-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.teacher-remark-empty {
+  min-height: 300px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.teacher-remark-icon {
+  width: 68px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 18px;
+  border-radius: 22px;
+  background: #f0eaff;
+  color: #6c35d9;
+  font-size: 30px;
+}
+
+.teacher-remark-empty h2 {
+  margin: 0 0 10px;
+}
+
+.teacher-remark-empty p {
+  max-width: 540px;
+  margin: 0;
+  color: #64748b;
 }
 
 .workspace {
