@@ -323,8 +323,11 @@ button {
 .empty-donut {
   width: 112px;
   height: 112px;
-  border: 22px solid rgba(156, 173, 208, 0.16);
   border-radius: 50%;
+  background: conic-gradient(#2270da 0 25%, #55a8df 25% 50%, #45b748 50% 75%, #ffb719 75% 100%);
+  opacity: 0.72;
+  -webkit-mask: radial-gradient(circle, transparent 0 43%, #000 45%);
+  mask: radial-gradient(circle, transparent 0 43%, #000 45%);
 }
 
 .empty-bars {
@@ -340,7 +343,8 @@ button {
   width: 11%;
   height: 8px;
   border-radius: 5px 5px 0 0;
-  background: rgba(156, 173, 208, 0.18);
+  background: linear-gradient(to top, #7437c9 0 58%, #58a8e8 58% 100%);
+  opacity: 0.72;
 }
 
 .empty-rows,
@@ -354,7 +358,7 @@ button {
 .empty-progress i {
   height: 12px;
   border-radius: 999px;
-  background: rgba(156, 173, 208, 0.14);
+  background: linear-gradient(90deg, rgba(34, 112, 218, 0.42), rgba(85, 168, 223, 0.2));
 }
 
 .empty-progress i::after {
@@ -376,7 +380,24 @@ button {
 .empty-heatmap i {
   aspect-ratio: 1.8;
   border-radius: 3px;
-  background: rgba(156, 173, 208, 0.13);
+  background: #21a65b;
+  opacity: 0.5;
+}
+
+.empty-heatmap i:nth-child(5n + 2) {
+  background: #ffd45a;
+}
+
+.empty-heatmap i:nth-child(5n + 3) {
+  background: #ff8430;
+}
+
+.empty-heatmap i:nth-child(5n + 4) {
+  background: #ef3e36;
+}
+
+.empty-heatmap i:nth-child(5n) {
+  background: #a6d95d;
 }
 
 .empty-line-chart {
@@ -393,7 +414,10 @@ button {
   bottom: 0;
   left: 0;
   height: 1px;
-  background: rgba(156, 173, 208, 0.2);
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #269f61, #55c982);
+  opacity: 0.65;
 }
 
 .workspace {
