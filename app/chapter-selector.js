@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppSelect from "./app-select";
 import { getApiBaseUrl } from "./api-base-url";
+import { getLoggedInUserEmail } from "./login-session";
 
 const API_BASE_URL = getApiBaseUrl();
 const DEFAULT_CLASS_ID = process.env.NEXT_PUBLIC_DEFAULT_CLASS_ID || "18";
@@ -12,6 +13,7 @@ export default function ChapterSelector({ showReader = false }) {
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedChapter, setSelectedChapter] = useState("");
+  const [studentEmail, setStudentEmail] = useState("");
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [chapters, setChapters] = useState([]);
@@ -60,9 +62,12 @@ export default function ChapterSelector({ showReader = false }) {
       setError("");
 
       try {
+        const email = await getLoggedInUserEmail();
+        if (!email) throw new Error("Logged-in student email is unavailable.");
+        const emailParams = new URLSearchParams({ email });
         const [classesResponse, studentResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/classes`),
-          fetch(`${API_BASE_URL}/students/current`)
+          fetch(`${API_BASE_URL}/classes?${emailParams.toString()}`),
+          fetch(`${API_BASE_URL}/students/current?${emailParams.toString()}`)
         ]);
         const classesData = await classesResponse.json().catch(() => ({}));
         const studentData = await studentResponse.json().catch(() => ({}));
@@ -81,6 +86,7 @@ export default function ChapterSelector({ showReader = false }) {
           : String(availableClasses[0]?.class_id || "");
 
         if (!cancelled) {
+          setStudentEmail(email);
           setClasses(availableClasses);
           setSelectedClass(selectedClassId);
         }
@@ -107,7 +113,7 @@ export default function ChapterSelector({ showReader = false }) {
     let cancelled = false;
 
     async function loadSubjectsForClass() {
-      if (!selectedClass) {
+      if (!selectedClass || !studentEmail) {
         setSubjects([]);
         setSelectedSubject("");
         setChapters([]);
@@ -125,7 +131,7 @@ export default function ChapterSelector({ showReader = false }) {
       setChapterContent(null);
 
       try {
-        const params = new URLSearchParams({ class_id: selectedClass });
+        const params = new URLSearchParams({ class_id: selectedClass, email: studentEmail });
         const response = await fetch(`${API_BASE_URL}/subjects?${params.toString()}`);
         const data = await response.json().catch(() => ({}));
 
@@ -153,13 +159,13 @@ export default function ChapterSelector({ showReader = false }) {
     return () => {
       cancelled = true;
     };
-  }, [selectedClass]);
+  }, [selectedClass, studentEmail]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadChaptersForSubject() {
-      if (!selectedClass || !selectedSubject) {
+      if (!selectedClass || !selectedSubject || !studentEmail) {
         setChapters([]);
         setSelectedChapter("");
         return;
@@ -174,7 +180,8 @@ export default function ChapterSelector({ showReader = false }) {
       try {
         const params = new URLSearchParams({
           class_id: selectedClass,
-          subject_id: selectedSubject
+          subject_id: selectedSubject,
+          email: studentEmail
         });
         const response = await fetch(`${API_BASE_URL}/chapter-content-list?${params.toString()}`);
         const data = await response.json().catch(() => ({}));
@@ -203,7 +210,7 @@ export default function ChapterSelector({ showReader = false }) {
     return () => {
       cancelled = true;
     };
-  }, [selectedSubject, selectedClass]);
+  }, [selectedSubject, selectedClass, studentEmail]);
 
   useEffect(() => {
     if (speechSupported) {
@@ -334,7 +341,8 @@ export default function ChapterSelector({ showReader = false }) {
 
     try {
       const params = new URLSearchParams({
-        chapter_content_id: selectedChapter
+        chapter_content_id: selectedChapter,
+        email: studentEmail
       });
       const response = await fetch(`${API_BASE_URL}/chapter-content?${params.toString()}`);
       const data = await response.json().catch(() => ({}));

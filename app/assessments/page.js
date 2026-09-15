@@ -101,7 +101,9 @@ function MockTestView() {
       setError("");
 
       try {
-        const response = await fetch(`${API_BASE_URL}/quiz-chapters`);
+        const email = await getLoggedInUserEmail();
+        if (!email) throw new Error("Logged-in student email is unavailable.");
+        const response = await fetch(`${API_BASE_URL}/quiz-chapters?${new URLSearchParams({ email }).toString()}`);
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {

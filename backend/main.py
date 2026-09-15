@@ -91,12 +91,12 @@ class StudyContentGenerationInput(BaseModel):
 class QuizGenerationInput(BaseModel):
     chapter_id: int = Field(..., ge=1)
     question_count: int = Field(default=5, ge=3, le=10)
-    user_email: str | None = Field(default=None, min_length=3, max_length=150)
+    user_email: str = Field(..., min_length=3, max_length=150)
 
 
 class MockTestGenerationInput(BaseModel):
     chapter_id: int = Field(..., ge=1)
-    user_email: str | None = Field(default=None, min_length=3, max_length=150)
+    user_email: str = Field(..., min_length=3, max_length=150)
 
 
 class QuizResultInput(BaseModel):
@@ -242,6 +242,13 @@ def fetch_current_student_record(student_email: str | None = None) -> dict:
         detail = "No active student found for the logged-in email." if student_email else "No active student found."
         raise HTTPException(status_code=404, detail=detail)
 
+    return student
+
+
+def fetch_student_with_class(student_email: str) -> dict:
+    student = fetch_current_student_record(student_email)
+    if student.get("class_id") is None:
+        raise HTTPException(status_code=409, detail="The logged-in student is not assigned to a class.")
     return student
 
 
@@ -503,17 +510,11 @@ def get_current_assignments(
     email: str | None = Query(default=None, min_length=3, max_length=150),
 ):
     try:
-        try:
-            student = fetch_current_student_record(email)
-        except HTTPException as error:
-            if error.status_code != 404:
-                raise
-            # Student records are not available yet. Keep assignment listing
-            # usable, but leave submissions protected by their student lookup.
-            student = None
-
-        student_id = student["student_id"] if student else None
-        class_id = student["class_id"] if student else None
+        if not email:
+            raise HTTPException(status_code=400, detail="Logged-in student email is required.")
+        student = fetch_student_with_class(email)
+        student_id = student["student_id"]
+        class_id = student["class_id"]
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
@@ -535,11 +536,11 @@ def get_current_assignments(
                       ON r.assignment_id = a.assignment_id
                      AND r.student_id = %s
                      AND COALESCE(r.record_status, 'ACTIVE') = 'ACTIVE'
-                    WHERE (%s::bigint IS NULL OR a.class_id = %s)
+                    WHERE a.class_id = %s
                       AND COALESCE(a.record_status, 'Active') = 'Active'
                     ORDER BY a.due_date ASC NULLS LAST, a.assignment_id DESC
                     """,
-                    (student_id, class_id, class_id),
+                    (student_id, class_id),
                 )
                 assignments = cursor.fetchall()
 
@@ -747,7 +748,8 @@ def submit_assignment(payload: AssignmentSubmissionInput):
 
 
 @app.get("/classes")
-def get_classes():
+def get_classes(email: str = Query(..., min_length=3, max_length=150)):
+    student = fetch_student_with_class(email)
     query = """
         SELECT
             class_id,
@@ -755,7 +757,7 @@ def get_classes():
             section_name,
             academic_year
         FROM sgs_class_master
-        WHERE class_id IS NOT NULL
+        WHERE class_id = %s
           AND NULLIF(BTRIM(class_name), '') IS NOT NULL
         ORDER BY class_name, section_name, class_id;
     """
@@ -763,7 +765,7 @@ def get_classes():
     try:
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query)
+                cursor.execute(query, (student["class_id"],))
                 classes = cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
@@ -778,8 +780,12 @@ def get_classes():
 
 @app.get("/subjects")
 def get_subjects(
-    class_id: int | None = Query(default=None, ge=1),
+    class_id: int = Query(..., ge=1),
+    email: str = Query(..., min_length=3, max_length=150),
 ):
+    student = fetch_student_with_class(email)
+    if class_id != student["class_id"]:
+        raise HTTPException(status_code=403, detail="This class is not assigned to the logged-in student.")
     query = """
         SELECT DISTINCT
             subject_id,
@@ -788,14 +794,14 @@ def get_subjects(
         FROM sgs_subject_master
         WHERE subject_id IS NOT NULL
           AND NULLIF(BTRIM(subject_name), '') IS NOT NULL
-          AND (%s IS NULL OR class_id = %s)
+          AND class_id = %s
         ORDER BY subject_name;
     """
 
     try:
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (class_id, class_id))
+                cursor.execute(query, (class_id,))
                 subjects = cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
@@ -812,7 +818,11 @@ def get_subjects(
 def get_chapter_content_list(
     class_id: int = Query(..., ge=1),
     subject_id: int = Query(..., ge=1),
+    email: str = Query(..., min_length=3, max_length=150),
 ):
+    student = fetch_student_with_class(email)
+    if class_id != student["class_id"]:
+        raise HTTPException(status_code=403, detail="This class is not assigned to the logged-in student.")
     query = """
         SELECT
             chapter_content_id,
@@ -859,7 +869,9 @@ def get_chapter_content_list(
 @app.get("/study-materials")
 def get_study_materials(
     chapter_content_id: int = Query(..., ge=1),
+    email: str = Query(..., min_length=3, max_length=150),
 ):
+    student = fetch_student_with_class(email)
     query = """
         SELECT
             metadata.file_id,
@@ -873,6 +885,7 @@ def get_study_materials(
           ON metadata.entity_id = content.chapter_id
          AND UPPER(BTRIM(metadata.entity_type)) = %s
         WHERE content.chapter_content_id = %s
+          AND content.class_id = %s
           AND LOWER(COALESCE(metadata.record_status, 'Active')) = 'active'
         ORDER BY metadata.created_at DESC NULLS LAST, metadata.file_id DESC;
     """
@@ -882,7 +895,7 @@ def get_study_materials(
             with connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     query,
-                    (STUDY_MATERIAL_ENTITY_TYPE, chapter_content_id),
+                    (STUDY_MATERIAL_ENTITY_TYPE, chapter_content_id, student["class_id"]),
                 )
                 rows = cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
@@ -924,7 +937,8 @@ def get_study_materials(
 
 
 @app.get("/quiz-chapters")
-def get_quiz_chapters():
+def get_quiz_chapters(email: str = Query(..., min_length=3, max_length=150)):
+    student = fetch_student_with_class(email)
     query = """
         SELECT DISTINCT ON (content.chapter_id)
             content.chapter_id,
@@ -937,6 +951,7 @@ def get_quiz_chapters():
         LEFT JOIN sgs_chapter_master chapter
           ON chapter.chapter_id = content.chapter_id
         WHERE content.chapter_id IS NOT NULL
+          AND content.class_id = %s
           AND (
             NULLIF(BTRIM(content.full_text_content), '') IS NOT NULL
             OR EXISTS (
@@ -945,7 +960,7 @@ def get_quiz_chapters():
                 WHERE metadata.entity_id = content.chapter_id
                   AND UPPER(BTRIM(metadata.entity_type)) = 'CHAPTER_STUDY_MATERIAL'
                   AND LOWER(COALESCE(metadata.record_status, 'Active')) = 'active'
-                  AND LOWER(metadata.file_name) LIKE '%.pdf'
+                  AND LOWER(metadata.file_name) LIKE '%%.pdf'
             )
           )
           AND COALESCE(content.is_active, true) = true
@@ -956,7 +971,7 @@ def get_quiz_chapters():
     try:
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query)
+                cursor.execute(query, (student["class_id"],))
                 chapters = cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
@@ -1219,7 +1234,7 @@ def normalize_quiz_questions(raw_questions) -> list[dict]:
     return questions
 
 
-def fetch_chapter_for_quiz(chapter_id: int) -> dict:
+def fetch_chapter_for_quiz(chapter_id: int, class_id: int) -> dict:
     query = """
         SELECT
             content.chapter_id,
@@ -1229,6 +1244,7 @@ def fetch_chapter_for_quiz(chapter_id: int) -> dict:
         LEFT JOIN sgs_chapter_master chapter
           ON chapter.chapter_id = content.chapter_id
         WHERE content.chapter_id = %s
+          AND content.class_id = %s
           AND COALESCE(content.is_active, true) = true
           AND COALESCE(content.record_status, 'Active') = 'Active'
         ORDER BY content.chapter_content_id
@@ -1238,7 +1254,7 @@ def fetch_chapter_for_quiz(chapter_id: int) -> dict:
     try:
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (chapter_id,))
+                cursor.execute(query, (chapter_id, class_id))
                 chapter = cursor.fetchone()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
@@ -1317,7 +1333,8 @@ def fetch_quiz_study_material_parts(chapter_id: int) -> tuple[list[dict], list[s
 
 @app.post("/ai/generate-quiz")
 def generate_ai_quiz(payload: QuizGenerationInput):
-    chapter = fetch_chapter_for_quiz(payload.chapter_id)
+    student = fetch_student_with_class(payload.user_email)
+    chapter = fetch_chapter_for_quiz(payload.chapter_id, student["class_id"])
     resource_parts, source_files = fetch_quiz_study_material_parts(payload.chapter_id)
     content = str(chapter["full_text_content"])[:18000]
     if not resource_parts and not content.strip():
@@ -1465,7 +1482,8 @@ def save_quiz_result(payload: QuizResultInput):
 @app.post("/ai/generate-mock-test")
 def generate_ai_mock_test(payload: MockTestGenerationInput):
     question_count = 5
-    chapter = fetch_chapter_for_quiz(payload.chapter_id)
+    student = fetch_student_with_class(payload.user_email)
+    chapter = fetch_chapter_for_quiz(payload.chapter_id, student["class_id"])
     resource_parts, source_files = fetch_quiz_study_material_parts(payload.chapter_id)
     content = str(chapter["full_text_content"])[:18000]
     if not resource_parts and not content.strip():
@@ -1853,7 +1871,9 @@ def get_chapter_content(
     chapter_content_id: int | None = Query(default=None, ge=1),
     subject: str | None = Query(default=None, min_length=1),
     lesson: str | None = Query(default=None, min_length=1),
+    email: str = Query(..., min_length=3, max_length=150),
 ):
+    student = fetch_student_with_class(email)
     if chapter_content_id is not None:
         query = """
             SELECT
@@ -1867,6 +1887,7 @@ def get_chapter_content(
                 pdf_url
             FROM sgs_chapter_content
             WHERE chapter_content_id = %s
+              AND class_id = %s
               AND (
                   NULLIF(BTRIM(full_text_content), '') IS NOT NULL
                   OR NULLIF(BTRIM(pdf_url), '') IS NOT NULL
@@ -1877,7 +1898,7 @@ def get_chapter_content(
         try:
             with get_connection() as connection:
                 with connection.cursor(row_factory=dict_row) as cursor:
-                    cursor.execute(query, (chapter_content_id,))
+                    cursor.execute(query, (chapter_content_id, student["class_id"]))
                     row = cursor.fetchone()
         except psycopg.errors.UndefinedTable as error:
             raise HTTPException(
