@@ -41,9 +41,6 @@ async function handleLogout() {
   window.localStorage.clear();
   window.sessionStorage.clear();
   const loginServiceUrl = getLoginServiceUrl();
-  const loginServiceSignOutUrl =
-    (process.env.NEXT_PUBLIC_LOGIN_SIGNOUT_URL || "").trim() ||
-    `${loginServiceUrl}/api/auth/signout?callbackUrl=${encodeURIComponent(loginServiceUrl)}`;
 
   try {
     const csrfResponse = await fetch(`${loginServiceUrl}/api/auth/csrf`, {
@@ -62,10 +59,19 @@ async function handleLogout() {
       }),
       credentials: "include"
     });
-    const signOutData = await signOutResponse.json();
-    window.location.assign(signOutData.url || loginServiceUrl);
+    if (!signOutResponse.ok) {
+      throw new Error("Unable to complete server sign-out.");
+    }
+
+    const contentType = signOutResponse.headers.get("content-type") || "";
+    const signOutData = contentType.includes("application/json")
+      ? await signOutResponse.json()
+      : null;
+    window.location.assign(signOutData?.url || loginServiceUrl);
   } catch {
-    window.location.assign(loginServiceSignOutUrl);
+    // Never open NextAuth's GET /signout page because this component already
+    // provides the user-facing confirmation dialog.
+    window.location.assign(loginServiceUrl);
   }
 }
 
