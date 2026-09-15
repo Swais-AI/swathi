@@ -1392,7 +1392,7 @@ button {
 }
 
 .assessment-option-grid {
-  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
   width: 100%;
 }
 

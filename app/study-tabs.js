@@ -36,10 +36,9 @@ const studyTabs = [
     title: "Study C: Assessment",
     href: "/assessments",
     rows: [
-      ["1) Unit Test", "/assessments"],
-      ["2) Mock Test", "/assessments"],
-      ["3) Student Analysis", "/assessments"],
-      ["4) Teacher Remark", "/assessments"]
+      ["1) Mock Test", "/assessments"],
+      ["2) Student Analysis", "/assessments"],
+      ["3) Teacher Remark", "/assessments"]
     ]
   }
 ];

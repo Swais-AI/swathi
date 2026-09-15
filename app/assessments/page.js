@@ -11,15 +11,6 @@ import StudentAnalysisView from "./student-analysis-view";
 const API_BASE_URL = getApiBaseUrl();
 const MOCK_TEST_DURATION_SECONDS = 15 * 60;
 
-const unitTest = {
-  title: "Unit Test",
-  subject: "Social Science",
-  chapter: "Democratic India",
-  question: "Explain why elections are important in a democratic country like India.",
-  studentAnswer: "Elections are important because people can choose their leaders. If leaders do not work properly, citizens can vote for another leader in the next election.",
-  aiAnswer: "Elections are important in democratic India because they give citizens the power to choose their representatives. Regular elections make leaders accountable to the people, protect public participation, and allow citizens to peacefully change the government when they are not satisfied."
-};
-
 function TeacherRemarkView() {
   const emptyCards = [
     ["Performance Overview", "donut"],
@@ -406,25 +397,7 @@ function MockTestView() {
 }
 
 export default function AssessmentsPage() {
-  const [activeOption, setActiveOption] = useState("unit-test");
-  const [showEvaluation, setShowEvaluation] = useState(false);
-
-  useEffect(() => {
-    const requestedView = new URLSearchParams(window.location.search).get("view");
-    if (requestedView === "mock-test") {
-      setActiveOption("mock-test");
-    }
-  }, []);
-
-  function handleUnitTest() {
-    setActiveOption("unit-test");
-    setShowEvaluation(false);
-  }
-
-  function handleAiEvaluation() {
-    setActiveOption("unit-test");
-    setShowEvaluation(true);
-  }
+  const [activeOption, setActiveOption] = useState("mock-test");
 
   return (
     <DashboardShell>
@@ -432,70 +405,16 @@ export default function AssessmentsPage() {
         <StudyTabs />
         <div className="module-content-area assessment-content-area">
           <div className="module-action-grid assessment-option-grid">
-            <button className={`module-action ${activeOption === "unit-test" ? "active" : ""}`} type="button" onClick={handleUnitTest}>Unit Test</button>
             <button
               className={`module-action ${activeOption === "mock-test" ? "active" : ""}`}
               type="button"
-              onClick={() => {
-                setActiveOption("mock-test");
-                setShowEvaluation(false);
-              }}
+              onClick={() => setActiveOption("mock-test")}
             >
               Mock Test
             </button>
             <button className={`module-action ${activeOption === "student-analysis" ? "active" : ""}`} type="button" onClick={() => setActiveOption("student-analysis")}>Student Analysis</button>
             <button className={`module-action ${activeOption === "teacher-remark" ? "active" : ""}`} type="button" onClick={() => setActiveOption("teacher-remark")}>Teacher Remark</button>
           </div>
-
-          {activeOption === "unit-test" && (
-            <div className="quiz-layout assessment-layout">
-              <article className="module-card purple-module">
-                <div className="card-title-row">
-                  <h2>{unitTest.title}</h2>
-                  <span className={`status-pill ${showEvaluation ? "completed" : "in-progress"}`}>{showEvaluation ? "Evaluated" : "Ready"}</span>
-                </div>
-
-                <div className="meta-row">
-                  <span>{unitTest.subject}</span>
-                  <span>{unitTest.chapter}</span>
-                  <span>Total Marks: 10</span>
-                </div>
-
-                <div className="quiz-question-list">
-                  <fieldset className="quiz-question">
-                    <legend>1. {unitTest.question}</legend>
-                    <div className="assessment-answer-box">
-                      <span>Student Answer</span>
-                      <p>{unitTest.studentAnswer}</p>
-                    </div>
-                  </fieldset>
-                </div>
-
-                <div className="quiz-submit-row">
-                  <button className="primary-button" type="button" onClick={handleAiEvaluation}>AI Evaluation</button>
-                  <button className="soft-button" type="button" onClick={handleUnitTest}>Reset</button>
-                </div>
-              </article>
-
-              <article className="module-card latest-result-card">
-                <h2>AI Evaluation</h2>
-                <div className="result-grid quiz-result-grid">
-                  <div><span>Chapter</span><strong>{unitTest.chapter}</strong></div>
-                  <div><span>Score</span><strong className="score-text">{showEvaluation ? "8 / 10" : "- / 10"}</strong></div>
-                  <div><span>Status</span><strong>{showEvaluation ? "Completed" : "Pending"}</strong></div>
-                </div>
-
-                {showEvaluation && (
-                  <div className="quiz-score-card assessment-ai-card">
-                    <strong>AI Answer</strong>
-                    <p>{unitTest.aiAnswer}</p>
-                    <strong>Feedback</strong>
-                    <p>Your answer is correct and clear. Add points about accountability and peaceful change of government to make it stronger.</p>
-                  </div>
-                )}
-              </article>
-            </div>
-          )}
 
           {activeOption === "mock-test" && <MockTestView />}
           {activeOption === "student-analysis" && <StudentAnalysisView />}
