@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
+import { getLoggedInUserEmail } from "../login-session";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
@@ -24,6 +25,7 @@ export default function StudyMaterialPage() {
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedChapter, setSelectedChapter] = useState("");
+  const [studentEmail, setStudentEmail] = useState("");
   const [materials, setMaterials] = useState([]);
   const [previewMaterial, setPreviewMaterial] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -37,14 +39,14 @@ export default function StudyMaterialPage() {
 
     async function loadClasses() {
       try {
-        const data = await fetchJson(`${API_BASE_URL}/classes`);
+        const email = await getLoggedInUserEmail();
+        if (!email) throw new Error("Logged-in student email is unavailable.");
+        const data = await fetchJson(`${API_BASE_URL}/classes?${new URLSearchParams({ email }).toString()}`);
         const availableClasses = Array.isArray(data.classes) ? data.classes : [];
         if (!cancelled) {
+          setStudentEmail(email);
           setClasses(availableClasses);
-          const classSix = availableClasses.find(
-            (item) => String(item.class_name).trim() === "6" && String(item.section_name || "").trim().toUpperCase() === "A"
-          );
-          setSelectedClass(String(classSix?.class_id || availableClasses[0]?.class_id || ""));
+          setSelectedClass(String(availableClasses[0]?.class_id || ""));
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -69,7 +71,7 @@ export default function StudyMaterialPage() {
     setPreviewMaterial(null);
     setHasLoaded(false);
 
-    if (!selectedClass) {
+    if (!selectedClass || !studentEmail) {
       return () => {
         cancelled = true;
       };
@@ -79,7 +81,8 @@ export default function StudyMaterialPage() {
       setLoadingSubjects(true);
       setError("");
       try {
-        const data = await fetchJson(`${API_BASE_URL}/subjects?class_id=${encodeURIComponent(selectedClass)}`);
+        const params = new URLSearchParams({ class_id: selectedClass, email: studentEmail });
+        const data = await fetchJson(`${API_BASE_URL}/subjects?${params.toString()}`);
         if (!cancelled) {
           setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
         }
@@ -98,7 +101,7 @@ export default function StudyMaterialPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedClass]);
+  }, [selectedClass, studentEmail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,7 +111,7 @@ export default function StudyMaterialPage() {
     setPreviewMaterial(null);
     setHasLoaded(false);
 
-    if (!selectedClass || !selectedSubject) {
+    if (!selectedClass || !selectedSubject || !studentEmail) {
       return () => {
         cancelled = true;
       };
@@ -120,7 +123,8 @@ export default function StudyMaterialPage() {
       try {
         const params = new URLSearchParams({
           class_id: selectedClass,
-          subject_id: selectedSubject
+          subject_id: selectedSubject,
+          email: studentEmail
         });
         const data = await fetchJson(`${API_BASE_URL}/chapter-content-list?${params.toString()}`);
         if (!cancelled) {
@@ -141,7 +145,7 @@ export default function StudyMaterialPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedClass, selectedSubject]);
+  }, [selectedClass, selectedSubject, studentEmail]);
 
   async function handleLoadMaterials(event) {
     event.preventDefault();
@@ -158,7 +162,7 @@ export default function StudyMaterialPage() {
 
     try {
       const data = await fetchJson(
-        `${API_BASE_URL}/study-materials?chapter_content_id=${encodeURIComponent(selectedChapter)}`
+        `${API_BASE_URL}/study-materials?${new URLSearchParams({ chapter_content_id: selectedChapter, email: studentEmail }).toString()}`
       );
       setMaterials(Array.isArray(data.materials) ? data.materials : []);
       setHasLoaded(true);

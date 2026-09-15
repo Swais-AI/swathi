@@ -3,12 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
+import { getLoggedInUserEmail } from "../login-session";
 import DashboardShell from "../dashboard-shell";
 import StudyTabs from "../study-tabs";
 
 const API_BASE_URL = getApiBaseUrl();
-const DEFAULT_CLASS_ID = process.env.NEXT_PUBLIC_DEFAULT_CLASS_ID || "18";
-
 const learnerTracks = [
   {
     key: "Fast Reader",
@@ -51,6 +50,7 @@ function metricValue(value) {
 
 export default function AiLearningPathPage() {
   const [student, setStudent] = useState(null);
+  const [studentEmail, setStudentEmail] = useState("");
   const [performance, setPerformance] = useState(null);
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -79,12 +79,15 @@ export default function AiLearningPathPage() {
       setError("");
 
       try {
+        const email = await getLoggedInUserEmail();
+        if (!email) throw new Error("Logged-in student email is unavailable.");
+        const emailParams = new URLSearchParams({ email });
         const [studentData, classesData] = await Promise.all([
-          fetchJson(`${API_BASE_URL}/students/current`),
-          fetchJson(`${API_BASE_URL}/classes`)
+          fetchJson(`${API_BASE_URL}/students/current?${emailParams.toString()}`),
+          fetchJson(`${API_BASE_URL}/classes?${emailParams.toString()}`)
         ]);
         const currentStudent = studentData.student;
-        const currentClassId = currentStudent?.class_id || DEFAULT_CLASS_ID;
+        const currentClassId = currentStudent?.class_id;
         const availableClasses = Array.isArray(classesData.classes) ? classesData.classes : [];
         const classId = availableClasses.some((item) => String(item.class_id) === String(currentClassId))
           ? String(currentClassId)
@@ -93,6 +96,7 @@ export default function AiLearningPathPage() {
         const performanceData = await fetchJson(`${API_BASE_URL}/student-performance-summary?student_id=${currentStudent.student_id}`);
 
         if (!cancelled) {
+          setStudentEmail(email);
           setStudent(currentStudent);
           setClasses(availableClasses);
           setSelectedClass(classId);
@@ -120,7 +124,7 @@ export default function AiLearningPathPage() {
     let cancelled = false;
 
     async function loadSubjects() {
-      if (!selectedClass) {
+      if (!selectedClass || !studentEmail) {
         setSubjects([]);
         setSelectedSubject("");
         return;
@@ -134,7 +138,8 @@ export default function AiLearningPathPage() {
       setGeneratedContent(null);
 
       try {
-        const data = await fetchJson(`${API_BASE_URL}/subjects?class_id=${selectedClass}`);
+        const params = new URLSearchParams({ class_id: selectedClass, email: studentEmail });
+        const data = await fetchJson(`${API_BASE_URL}/subjects?${params.toString()}`);
         if (!cancelled) {
           setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
         }
@@ -154,13 +159,13 @@ export default function AiLearningPathPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedClass]);
+  }, [selectedClass, studentEmail]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadChapters() {
-      if (!selectedClass || !selectedSubject) {
+      if (!selectedClass || !selectedSubject || !studentEmail) {
         setChapters([]);
         setSelectedChapter("");
         return;
@@ -174,7 +179,8 @@ export default function AiLearningPathPage() {
       try {
         const params = new URLSearchParams({
           class_id: selectedClass,
-          subject_id: selectedSubject
+          subject_id: selectedSubject,
+          email: studentEmail
         });
         const data = await fetchJson(`${API_BASE_URL}/chapter-content-list?${params.toString()}`);
         if (!cancelled) {
@@ -196,7 +202,7 @@ export default function AiLearningPathPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedClass, selectedSubject]);
+  }, [selectedClass, selectedSubject, studentEmail]);
 
   async function refreshPerformance() {
     if (!student?.student_id) {
