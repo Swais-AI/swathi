@@ -224,7 +224,7 @@ function DashboardShellFrame({ children }) {
         <div className="nav-divider" />
 
         <button className="nav-item logout-link" type="button" onClick={() => setShowLogoutConfirmation(true)}>
-          <Icon name="power" />
+          <Icon name="sign-out" />
           <span>Logout</span>
         </button>
       </aside>

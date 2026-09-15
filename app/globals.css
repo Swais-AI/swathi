@@ -170,18 +170,44 @@ button {
 
 .logout-link {
   width: 100%;
+  min-height: 44px;
+  gap: 12px;
+  padding: 0 13px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
-  color: #ff473d;
+  color: #9aa9c7;
   cursor: pointer;
-  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
   text-align: left;
+  transition: color 160ms ease, background-color 160ms ease;
 }
 
 .logout-link:hover,
 .logout-link:focus-visible {
-  background: rgba(255, 71, 61, 0.12);
+  background: rgba(148, 163, 184, 0.09);
+  color: #d8e1f2;
   outline: none;
+}
+
+.sign-out::before {
+  left: 4px;
+  top: 5px;
+  width: 10px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right: 0;
+  border-radius: 3px 0 0 3px;
+}
+
+.sign-out::after {
+  left: 11px;
+  top: 8px;
+  width: 13px;
+  height: 11px;
+  background: currentColor;
+  clip-path: polygon(0 40%, 58% 40%, 58% 0, 100% 50%, 58% 100%, 58% 60%, 0 60%);
 }
 
 .logout-modal-backdrop {
