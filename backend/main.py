@@ -3,6 +3,7 @@ import json
 import base64
 import logging
 import mimetypes
+import unicodedata
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -182,6 +183,21 @@ def parse_s3_location(file_url: str) -> tuple[str, str]:
     return parsed.netloc, parsed.path.lstrip("/")
 
 
+def sanitize_content_disposition_filename(file_name: str) -> str:
+    original_name = str(file_name or "")
+    original_suffix = Path(original_name).suffix
+    normalized_stem = unicodedata.normalize("NFKD", Path(original_name).stem)
+    ascii_stem = normalized_stem.encode("ascii", "ignore").decode("ascii")
+    cleaned_stem = "".join(
+        character
+        for character in ascii_stem
+        if character.isalnum() or character in {" ", ".", "-", "_", "(", ")"}
+    ).strip(" .")
+    normalized_suffix = unicodedata.normalize("NFKD", original_suffix).encode("ascii", "ignore").decode("ascii")
+    safe_suffix = "".join(character for character in normalized_suffix if character.isalnum() or character == ".")[:16]
+    return f"{(cleaned_stem[:160] or 'assignment-material')}{safe_suffix}"
+
+
 def create_material_urls(file_url: str, file_name: str) -> tuple[str, str]:
     bucket, object_key = parse_s3_location(file_url)
     configured_bucket = (os.getenv("AWS_S3_BUCKET_NAME") or "").strip()
@@ -190,7 +206,7 @@ def create_material_urls(file_url: str, file_name: str) -> tuple[str, str]:
 
     expires_in = int(os.getenv("AWS_S3_PRESIGNED_URL_EXPIRY", "3600"))
     expires_in = max(60, min(expires_in, 604800))
-    safe_name = file_name.replace('"', "").replace("\r", "").replace("\n", "")
+    safe_name = sanitize_content_disposition_filename(file_name)
     response_content_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
     client = get_s3_client()
     common = {
