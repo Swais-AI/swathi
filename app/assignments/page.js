@@ -69,7 +69,6 @@ function fileToBase64(file) {
 export default function AssignmentsPage() {
   const fileInputRef = useRef(null);
   const uploadCardRef = useRef(null);
-  const [assignmentListTab, setAssignmentListTab] = useState("assignments");
   const [assignments, setAssignments] = useState([]);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -96,12 +95,13 @@ export default function AssignmentsPage() {
       }
 
       const nextAssignments = Array.isArray(data.assignments) ? data.assignments : [];
+      const nextAssignmentsWithMaterials = nextAssignments.filter((assignment) => assignment.attachments?.length);
       setAssignments(nextAssignments);
       setSelectedAssignment((current) => {
         if (current) {
-          return nextAssignments.find((assignment) => assignment.assignment_id === current.assignment_id) || nextAssignments[0] || null;
+          return nextAssignmentsWithMaterials.find((assignment) => assignment.assignment_id === current.assignment_id) || nextAssignmentsWithMaterials[0] || null;
         }
-        return nextAssignments[0] || null;
+        return nextAssignmentsWithMaterials[0] || null;
       });
     } catch (loadError) {
       setError(loadError.message || "Unable to load assignments.");
@@ -223,59 +223,10 @@ export default function AssignmentsPage() {
           <div className="assignment-layout">
             <article className="module-card assignment-list-card">
               <div className="card-title-row">
-                <h2>Your Assignments</h2>
-                <button className="soft-button" type="button" onClick={loadAssignments} disabled={loading}>
-                  {loading ? "Loading" : "View All"}
-                </button>
+                <h2>Assignment Materials</h2>
+                <span className="status-pill">{assignmentsWithMaterials.length}</span>
               </div>
-              <nav className="assignment-view-nav assignment-list-subnav" aria-label="Assignment list views">
-                <button className={assignmentListTab === "assignments" ? "active" : ""} type="button" onClick={() => setAssignmentListTab("assignments")}>
-                  All Assignments <span>{assignments.length}</span>
-                </button>
-                <button className={assignmentListTab === "materials" ? "active" : ""} type="button" onClick={() => setAssignmentListTab("materials")}>
-                  Assignment Materials <span>{assignmentsWithMaterials.length}</span>
-                </button>
-              </nav>
-
-              {assignmentListTab === "assignments" && <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Assignment Title</th>
-                    <th>Due Date</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {assignments.map((assignment) => {
-                    const isSelected = selectedAssignment?.assignment_id === assignment.assignment_id;
-                    const status = assignment.status || "Not Started";
-                    const action = status === "Submitted" ? "View" : status === "In Progress" ? "Continue" : "Start";
-
-                    return (
-                      <tr className={isSelected || status === "In Progress" ? "highlight-row" : ""} key={assignment.assignment_id}>
-                        <td>{assignment.number}</td>
-                        <td>{assignment.assignment_title}</td>
-                        <td>{formatDate(assignment.due_date)}</td>
-                        <td><span className={`status-pill ${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span></td>
-                        <td>
-                          <button className="table-action" type="button" onClick={() => selectAssignment(assignment)}>
-                            {action}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {!loading && assignments.length === 0 && (
-                    <tr>
-                      <td colSpan="5">No assignments available.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>}
-
-              {assignmentListTab === "materials" && <table className="data-table">
+              <table className="data-table">
                 <thead><tr><th>Assignment</th><th>File Name</th><th>Action</th></tr></thead>
                 <tbody>
                   {assignmentsWithMaterials.flatMap((assignment) => assignment.attachments.map((attachment) => (
@@ -283,7 +234,7 @@ export default function AssignmentsPage() {
                       <td>{assignment.assignment_title}</td>
                       <td>{attachment.file_name}</td>
                       <td>
-                        <a className="table-action" href={attachment.view_url} target="_blank" rel="noreferrer">
+                        <a className="table-action" href={attachment.view_url} target="_blank" rel="noreferrer" onClick={() => selectAssignment(assignment)}>
                           {attachment.file_name?.toLowerCase().endsWith(".pdf") ? "View PDF" : "View File"}
                         </a>
                       </td>
@@ -291,7 +242,7 @@ export default function AssignmentsPage() {
                   )))}
                   {!loading && assignmentsWithMaterials.length === 0 && <tr><td colSpan="3">No assignment materials available.</td></tr>}
                 </tbody>
-              </table>}
+              </table>
               <div className="tip-box">Tip: Submit your assignments on time to get early feedback and improve your score!</div>
             </article>
 
