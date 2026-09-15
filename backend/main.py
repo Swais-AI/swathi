@@ -857,7 +857,14 @@ def get_chapter_content_list(
               AND NULLIF(BTRIM(content.content_title), '') IS NOT NULL
               AND (
                   NULLIF(BTRIM(content.full_text_content), '') IS NOT NULL
-                  OR NULLIF(BTRIM(content.pdf_url), '') IS NOT NULL
+                  OR EXISTS (
+                      SELECT 1
+                      FROM sgs_file_storage_metadata metadata
+                      WHERE metadata.entity_id = content.chapter_id
+                        AND UPPER(BTRIM(metadata.entity_type)) = %s
+                        AND NULLIF(BTRIM(metadata.file_url), '') IS NOT NULL
+                        AND LOWER(COALESCE(metadata.record_status, 'Active')) = 'active'
+                  )
               )
               AND COALESCE(content.is_active, true) = true
               AND LOWER(COALESCE(content.record_status, 'Active')) = 'active'
@@ -869,7 +876,7 @@ def get_chapter_content_list(
     try:
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (class_id, subject_id))
+                cursor.execute(query, (class_id, subject_id, STUDY_MATERIAL_ENTITY_TYPE))
                 chapters = cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
@@ -1893,28 +1900,44 @@ def get_chapter_content(
     if chapter_content_id is not None:
         query = """
             SELECT
-                chapter_content_id,
-                chapter_id,
-                class_id,
-                subject_id,
-                content_title,
-                full_text_content,
-                content_format,
-                pdf_url
-            FROM sgs_chapter_content
-            WHERE chapter_content_id = %s
-              AND class_id = %s
+                content.chapter_content_id,
+                content.chapter_id,
+                content.class_id,
+                content.subject_id,
+                content.content_title,
+                content.full_text_content,
+                content.content_format,
+                material.file_url AS pdf_url,
+                material.file_name
+            FROM sgs_chapter_content content
+            LEFT JOIN LATERAL (
+                SELECT metadata.file_url, metadata.file_name
+                FROM sgs_file_storage_metadata metadata
+                WHERE metadata.entity_id = content.chapter_id
+                  AND UPPER(BTRIM(metadata.entity_type)) = %s
+                  AND NULLIF(BTRIM(metadata.file_url), '') IS NOT NULL
+                  AND LOWER(COALESCE(metadata.record_status, 'Active')) = 'active'
+                ORDER BY metadata.created_at DESC NULLS LAST, metadata.file_id DESC
+                LIMIT 1
+            ) material ON true
+            WHERE content.chapter_content_id = %s
+              AND content.class_id = %s
               AND (
-                  NULLIF(BTRIM(full_text_content), '') IS NOT NULL
-                  OR NULLIF(BTRIM(pdf_url), '') IS NOT NULL
+                  NULLIF(BTRIM(content.full_text_content), '') IS NOT NULL
+                  OR material.file_url IS NOT NULL
               )
+              AND COALESCE(content.is_active, true) = true
+              AND LOWER(COALESCE(content.record_status, 'Active')) = 'active'
             LIMIT 1;
         """
 
         try:
             with get_connection() as connection:
                 with connection.cursor(row_factory=dict_row) as cursor:
-                    cursor.execute(query, (chapter_content_id, student["class_id"]))
+                    cursor.execute(
+                        query,
+                        (STUDY_MATERIAL_ENTITY_TYPE, chapter_content_id, student["class_id"]),
+                    )
                     row = cursor.fetchone()
         except psycopg.errors.UndefinedTable as error:
             raise HTTPException(
@@ -1936,7 +1959,7 @@ def get_chapter_content(
         pdf_url = str(row.get("pdf_url") or "").strip()
         if pdf_url:
             try:
-                file_name = f"{row.get('content_title') or 'chapter'}.pdf"
+                file_name = row.get("file_name") or f"{row.get('content_title') or 'chapter'}.pdf"
                 view_url, download_url = create_material_urls(pdf_url, file_name)
             except (ValueError, BotoCoreError, ClientError) as error:
                 raise HTTPException(
