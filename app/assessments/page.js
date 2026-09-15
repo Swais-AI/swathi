@@ -21,11 +21,39 @@ const unitTest = {
 };
 
 function TeacherRemarkView() {
+  const emptyCards = [
+    ["Performance Overview", "donut"],
+    ["At-Risk Students", "bars"],
+    ["Top Subjects", "rows"],
+    ["Engagement Heatmap", "heatmap"],
+    ["Learning Progress", "progress"],
+    ["Growth Trend", "line"]
+  ];
+
   return (
-    <section className="module-card teacher-remark-empty" aria-live="polite">
-      <div className="teacher-remark-icon" aria-hidden="true">&#9998;</div>
-      <h2>No teacher remarks yet</h2>
-      <p>Your teacher&apos;s feedback and remarks will appear here after an assessment is reviewed.</p>
+    <section className="assessment-dashboard teacher-remark-dashboard" aria-label="Teacher remark dashboard">
+      <div className="assessment-dashboard-head">
+        <div>
+          <h2>Teacher Remark</h2>
+          <p>Performance graphs will update after your teacher reviews an assessment.</p>
+        </div>
+      </div>
+      <div className="analysis-grid">
+        {emptyCards.map(([title, type]) => (
+          <article className="analysis-card empty-graph-card" key={title}>
+            <h3>{title}</h3>
+            <div className={`empty-graph empty-graph-${type}`} aria-label={`${title}: no data available`}>
+              {type === "donut" && <div className="empty-donut" />}
+              {type === "bars" && <div className="empty-bars">{[1, 2, 3, 4, 5, 6].map((item) => <i key={item} />)}</div>}
+              {type === "rows" && <div className="empty-rows">{[1, 2, 3, 4].map((item) => <i key={item} />)}</div>}
+              {type === "heatmap" && <div className="empty-heatmap">{Array.from({ length: 24 }, (_, index) => <i key={index} />)}</div>}
+              {type === "progress" && <div className="empty-progress">{[1, 2, 3, 4].map((item) => <i key={item} />)}</div>}
+              {type === "line" && <div className="empty-line-chart"><i /></div>}
+            </div>
+            <span className="empty-graph-label">No data available</span>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }

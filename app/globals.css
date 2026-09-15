@@ -267,35 +267,107 @@ button {
   opacity: 0.65;
 }
 
-.teacher-remark-empty {
-  min-height: 300px;
+.teacher-remark-dashboard .assessment-dashboard-head p {
+  margin: 6px 0 0;
+  color: #9cadd0;
+}
+
+.empty-graph-card {
+  position: relative;
+  min-height: 250px;
+}
+
+.empty-graph {
+  min-height: 155px;
   display: grid;
-  place-content: center;
-  justify-items: center;
-  padding: 48px 24px;
+  place-items: center;
+  margin-top: 14px;
+  border-bottom: 1px solid rgba(156, 173, 208, 0.38);
+  color: rgba(156, 173, 208, 0.34);
+}
+
+.empty-graph-label {
+  display: block;
+  margin-top: 12px;
+  color: #8393b6;
+  font-size: 13px;
   text-align: center;
 }
 
-.teacher-remark-icon {
-  width: 68px;
-  height: 68px;
+.empty-donut {
+  width: 112px;
+  height: 112px;
+  border: 22px solid rgba(156, 173, 208, 0.16);
+  border-radius: 50%;
+}
+
+.empty-bars {
+  width: 82%;
+  height: 125px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  border-left: 1px solid rgba(156, 173, 208, 0.24);
+}
+
+.empty-bars i {
+  width: 11%;
+  height: 8px;
+  border-radius: 5px 5px 0 0;
+  background: rgba(156, 173, 208, 0.18);
+}
+
+.empty-rows,
+.empty-progress {
+  width: 86%;
   display: grid;
-  place-items: center;
-  margin-bottom: 18px;
-  border-radius: 22px;
-  background: #f0eaff;
-  color: #6c35d9;
-  font-size: 30px;
+  gap: 16px;
 }
 
-.teacher-remark-empty h2 {
-  margin: 0 0 10px;
+.empty-rows i,
+.empty-progress i {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(156, 173, 208, 0.14);
 }
 
-.teacher-remark-empty p {
-  max-width: 540px;
-  margin: 0;
-  color: #64748b;
+.empty-progress i::after {
+  content: "";
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: #6c35d9;
+}
+
+.empty-heatmap {
+  width: 84%;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.empty-heatmap i {
+  aspect-ratio: 1.8;
+  border-radius: 3px;
+  background: rgba(156, 173, 208, 0.13);
+}
+
+.empty-line-chart {
+  position: relative;
+  width: 84%;
+  height: 125px;
+  background: repeating-linear-gradient(to bottom, transparent 0 30px, rgba(156, 173, 208, 0.15) 31px 32px);
+  border-left: 1px solid rgba(156, 173, 208, 0.24);
+}
+
+.empty-line-chart i {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: rgba(156, 173, 208, 0.2);
 }
 
 .workspace {
