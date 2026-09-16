@@ -9,8 +9,14 @@ import { useLanguage } from "./i18n";
 const API_BASE_URL = getApiBaseUrl();
 
 const textSelector = [
+  ".sidebar .nav-item > span:last-child",
+  ".topbar .student-info p",
+  ".topbar .student-info h1",
+  ".topbar .chips span",
+  ".topbar .language-select > span",
   ".workspace h2",
   ".workspace h3",
+  ".workspace .panel-title",
   ".workspace p",
   ".workspace legend",
   ".workspace th",
@@ -28,23 +34,23 @@ const textSelector = [
   ".workspace .subject-row span",
   ".workspace .chapter-text p",
   ".workspace .chapter-content-header h2",
-  ".workspace .quiz-option span"
+  ".workspace .quiz-option span",
+  ".workspace .soft-button",
+  ".workspace .primary-button"
 ].join(",");
 
 function isSkippable(element) {
   return (
-    element.closest(".topbar") ||
-    element.closest(".sidebar") ||
     element.closest(".notice-dropdown") ||
     element.closest(".chapter-audio-controls") ||
-    element.matches("input, select, textarea, button")
+    element.matches("input, select, textarea")
   );
 }
 
 function getTranslatableElements() {
   return Array.from(document.querySelectorAll(textSelector)).filter((element) => {
     const text = element.textContent.trim();
-    return text && text.length <= 3000 && !isSkippable(element);
+    return text && text.length <= 3000 && element.childElementCount === 0 && !isSkippable(element);
   });
 }
 
@@ -99,25 +105,37 @@ export default function LanguagePageTranslator() {
         if (pendingElements.length === 0) return;
 
         try {
-          for (let index = 0; index < pendingElements.length; index += 8) {
+          const originalTexts = pendingElements.map((element) => {
+            if (!element.dataset.aiOriginalText) {
+              element.dataset.aiOriginalText = element.textContent.trim();
+            }
+            return element.dataset.aiOriginalText;
+          });
+          const uniqueTexts = [...new Set(originalTexts)];
+          const translatedByOriginal = new Map();
+
+          for (let index = 0; index < uniqueTexts.length; index += 8) {
             if (runIdRef.current !== runId) return;
 
-            const chunk = pendingElements.slice(index, index + 8);
-            const texts = chunk.map((element) => {
-              if (!element.dataset.aiOriginalText) {
-                element.dataset.aiOriginalText = element.textContent.trim();
-              }
-              return element.dataset.aiOriginalText;
-            });
+            const texts = uniqueTexts.slice(index, index + 8);
             const translations = await translateChunk(texts, language);
 
-            chunk.forEach((element, itemIndex) => {
-              if (translations[itemIndex]) {
-                element.textContent = translations[itemIndex];
-                element.dataset.aiCurrentLanguage = language;
-              }
+            texts.forEach((text, itemIndex) => {
+              if (translations[itemIndex]) translatedByOriginal.set(text, translations[itemIndex]);
             });
           }
+
+          if (runIdRef.current !== runId) return;
+
+          // Apply the completed translation set in one synchronous commit so
+          // the page never shows a mixture of old and new languages.
+          pendingElements.forEach((element, itemIndex) => {
+            const translation = translatedByOriginal.get(originalTexts[itemIndex]);
+            if (element.isConnected && translation) {
+              element.textContent = translation;
+              element.dataset.aiCurrentLanguage = language;
+            }
+          });
         } catch {
           restoreEnglish();
         }
