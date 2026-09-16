@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppSelect from "../app-select";
 import { getApiBaseUrl } from "../api-base-url";
 import { getLoggedInUserEmail } from "../login-session";
@@ -22,6 +22,16 @@ const languages = [
 ];
 
 const sampleText = "Democracy means that people choose their representatives through regular elections.";
+const speechLanguages = {
+  English: "en-IN",
+  Hindi: "hi-IN",
+  Telugu: "te-IN",
+  Tamil: "ta-IN",
+  Marathi: "mr-IN",
+  Gujarati: "gu-IN",
+  Kannada: "kn-IN",
+  Bengali: "bn-IN"
+};
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 35000) {
   const controller = new AbortController();
@@ -51,6 +61,28 @@ export default function AiTranslatorPage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const speechChunksRef = useRef([]);
+  const speechIndexRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      speechChunksRef.current = [];
+      speechIndexRef.current = 0;
+    };
+  }, []);
+
+  useEffect(() => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    speechChunksRef.current = [];
+    speechIndexRef.current = 0;
+    setIsSpeaking(false);
+  }, [translatedText, targetLanguage]);
 
   async function handleTranslate() {
     const trimmedText = text.trim();
@@ -95,28 +127,85 @@ export default function AiTranslatorPage() {
   }
 
   async function handleCopy() {
-    if (!translatedText || !navigator.clipboard) {
+    if (!translatedText) {
       return;
     }
 
-    await navigator.clipboard.writeText(translatedText);
-    setStatus("Translated text copied.");
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(translatedText);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = translatedText;
+        textArea.setAttribute("readonly", "");
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        const copied = document.execCommand("copy");
+        textArea.remove();
+        if (!copied) throw new Error("Copy command was rejected.");
+      }
+      setError("");
+      setStatus("Translated text copied.");
+    } catch {
+      setStatus("");
+      setError("Unable to copy automatically. Please select and copy the translated text manually.");
+    }
+  }
+
+  function speakChunk(index) {
+    if (index >= speechChunksRef.current.length) {
+      setIsSpeaking(false);
+      setStatus("Reading completed.");
+      return;
+    }
+
+    speechIndexRef.current = index;
+    const languageCode = speechLanguages[targetLanguage] || "en-IN";
+    const utterance = new SpeechSynthesisUtterance(speechChunksRef.current[index]);
+    const voices = window.speechSynthesis.getVoices();
+    const languagePrefix = languageCode.split("-")[0].toLowerCase();
+    const matchingVoice = voices.find((voice) => voice.lang.toLowerCase() === languageCode.toLowerCase())
+      || voices.find((voice) => voice.lang.toLowerCase().startsWith(languagePrefix));
+
+    utterance.lang = languageCode;
+    utterance.rate = 0.92;
+    if (matchingVoice) utterance.voice = matchingVoice;
+    utterance.onend = () => speakChunk(index + 1);
+    utterance.onerror = (event) => {
+      if (event.error !== "canceled" && event.error !== "interrupted") {
+        setError(`Unable to read ${targetLanguage} text with the available browser voice.`);
+      }
+      setIsSpeaking(false);
+    };
+    window.speechSynthesis.speak(utterance);
   }
 
   function handleSpeak() {
-    if (!translatedText || !("speechSynthesis" in window)) {
+    if (!translatedText || !("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
       setError("Text to voice is not supported in this browser.");
       return;
     }
 
     window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(translatedText));
+    speechChunksRef.current = translatedText.match(/[\s\S]{1,180}(?:\s|$)/g)?.map((chunk) => chunk.trim()).filter(Boolean)
+      || [translatedText];
+    speechIndexRef.current = 0;
+    setError("");
+    setStatus(`Reading translated text in ${targetLanguage}...`);
+    setIsSpeaking(true);
+    window.setTimeout(() => speakChunk(0), 0);
   }
 
   function handleStopSpeech() {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+    speechChunksRef.current = [];
+    speechIndexRef.current = 0;
+    setIsSpeaking(false);
+    setStatus("Reading stopped.");
   }
 
   return (
@@ -168,8 +257,8 @@ export default function AiTranslatorPage() {
                   <strong>Translated Text</strong>
                   <div>
                     <button className="soft-button" type="button" onClick={handleCopy} disabled={!translatedText}>Copy</button>
-                    <button className="soft-button" type="button" onClick={handleSpeak} disabled={!translatedText}>Speak</button>
-                    <button className="soft-button" type="button" onClick={handleStopSpeech}>Stop</button>
+                    <button className="soft-button" type="button" onClick={handleSpeak} disabled={!translatedText || isSpeaking}>{isSpeaking ? "Speaking..." : "Speak"}</button>
+                    <button className="soft-button" type="button" onClick={handleStopSpeech} disabled={!isSpeaking}>Stop</button>
                   </div>
                 </div>
                 <div className="translator-output" aria-live="polite">

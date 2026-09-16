@@ -168,6 +168,7 @@ function DashboardShellFrame({ children }) {
   const student = useCurrentStudent();
   const [showLogoutConfirmation, setShowLogoutConfirmation] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const studentName = student?.full_name || "Student";
   const admissionNo = student?.admission_no || "-";
   const rollNo = student?.roll_no || "-";
@@ -200,16 +201,49 @@ function DashboardShellFrame({ children }) {
     await handleLogout();
   }
 
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setIsMobileMenuOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isMobileMenuOpen]);
+
   return (
     <main className="app-shell">
-      <aside className="sidebar">
+      <button
+        className={`mobile-menu-button ${isMobileMenuOpen ? "open" : ""}`}
+        type="button"
+        aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+        aria-expanded={isMobileMenuOpen}
+        aria-controls="student-sidebar"
+        onClick={() => setIsMobileMenuOpen((isOpen) => !isOpen)}
+      >
+        <span />
+        <span />
+        <span />
+      </button>
+
+      <aside id="student-sidebar" className={`sidebar ${isMobileMenuOpen ? "mobile-open" : ""}`}>
         <div className="brand">
           <BrandMark />
         </div>
 
         <nav className="nav-list" aria-label="Student navigation">
           {navItems.map(([icon, label, href]) => (
-            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label} onClick={() => setIsMobileMenuOpen(false)}>
               <Icon name={icon} />
               <span>{label}</span>
             </Link>
@@ -220,7 +254,7 @@ function DashboardShellFrame({ children }) {
 
         <nav className="nav-list compact" aria-label="Settings navigation">
           {settingsItems.map(([icon, label, href]) => (
-            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label}>
+            <Link className={`nav-item ${isActive(href) ? "active" : ""}`} href={href} key={label} onClick={() => setIsMobileMenuOpen(false)}>
               <Icon name={icon} />
               <span>{label}</span>
             </Link>
@@ -229,11 +263,20 @@ function DashboardShellFrame({ children }) {
 
         <div className="nav-divider" />
 
-        <button className="nav-item logout-link" type="button" onClick={() => setShowLogoutConfirmation(true)}>
+        <button className="nav-item logout-link" type="button" onClick={() => { setIsMobileMenuOpen(false); setShowLogoutConfirmation(true); }}>
           <Icon name="sign-out" />
           <span>Logout</span>
         </button>
       </aside>
+
+      {isMobileMenuOpen && (
+        <button
+          className="mobile-menu-overlay"
+          type="button"
+          aria-label="Close navigation menu"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
 
       <section className="workspace">
         <header className="topbar">

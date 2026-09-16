@@ -101,7 +101,7 @@ export default function StudyTabs() {
             </Accordion.Trigger>
           </Accordion.Header>
           <div className="accent-line" />
-          <Accordion.Content className="panel-content">
+          <Accordion.Content className="panel-content" forceMount>
             <div className="panel-body">
               {tab.rows.map(([label, href]) => (
                 <Link className="study-row" href={href} key={label}>
