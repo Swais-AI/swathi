@@ -21,7 +21,6 @@ const navItems = [
 ];
 
 const settingsItems = [
-  ["settings", "Settings", "/settings"],
   ["help", "Help & Support", "/help"]
 ];
 

@@ -228,24 +228,26 @@ def create_material_urls(file_url: str, file_name: str) -> tuple[str, str]:
 
 
 def fetch_current_student_record(student_email: str | None = None) -> dict:
-    email_filter = "AND LOWER(BTRIM(student_email)) = LOWER(BTRIM(%s))" if student_email else ""
+    email_filter = "AND LOWER(BTRIM(student.student_email)) = LOWER(BTRIM(%s))" if student_email else ""
     query = f"""
         SELECT
-            student_id,
-            full_name,
-            roll_no,
-            admission_no,
-            class_id,
-            COALESCE(NULLIF(BTRIM(class_name), ''), class_id::text) AS class_name,
-            section,
-            student_email
-        FROM sgs_student_master
-        WHERE COALESCE(record_status, 'Active') = 'Active'
-          AND COALESCE(is_active, true) = true
+            student.student_id,
+            student.full_name,
+            student.roll_no,
+            student.admission_no,
+            student.class_id,
+            COALESCE(NULLIF(BTRIM(class_master.class_name), ''), NULLIF(BTRIM(student.class_name), ''), student.class_id::text) AS class_name,
+            student.section,
+            student.student_email
+        FROM sgs_student_master student
+        LEFT JOIN sgs_class_master class_master
+          ON class_master.class_id = student.class_id
+        WHERE COALESCE(student.record_status, 'Active') = 'Active'
+          AND COALESCE(student.is_active, true) = true
           {email_filter}
         ORDER BY
-            CASE WHEN admission_no IS NULL THEN 1 ELSE 0 END,
-            student_id
+            CASE WHEN student.admission_no IS NULL THEN 1 ELSE 0 END,
+            student.student_id
         LIMIT 1;
     """
 
@@ -960,7 +962,10 @@ def get_study_materials(
 
 
 @app.get("/quiz-chapters")
-def get_quiz_chapters(email: str = Query(..., min_length=3, max_length=150)):
+def get_quiz_chapters(
+    email: str = Query(..., min_length=3, max_length=150),
+    subject_id: int | None = Query(default=None, ge=1),
+):
     student = fetch_student_with_class(email)
     query = """
         SELECT DISTINCT ON (content.chapter_id)
@@ -975,6 +980,7 @@ def get_quiz_chapters(email: str = Query(..., min_length=3, max_length=150)):
           ON chapter.chapter_id = content.chapter_id
         WHERE content.chapter_id IS NOT NULL
           AND content.class_id = %s
+          AND (%s::bigint IS NULL OR content.subject_id = %s)
           AND (
             NULLIF(BTRIM(content.full_text_content), '') IS NOT NULL
             OR EXISTS (
@@ -994,7 +1000,7 @@ def get_quiz_chapters(email: str = Query(..., min_length=3, max_length=150)):
     try:
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(query, (student["class_id"],))
+                cursor.execute(query, (student["class_id"], subject_id, subject_id))
                 chapters = cursor.fetchall()
     except psycopg.errors.UndefinedTable as error:
         raise HTTPException(
@@ -1055,18 +1061,22 @@ def get_notices(
 
 
 @app.get("/notifications")
-def get_notifications():
+def get_notifications(email: str = Query(..., min_length=3, max_length=150)):
     student_query = """
         SELECT
-            student_id,
-            class_id,
-            COALESCE(NULLIF(BTRIM(class_name), ''), class_id::text) AS class_name
-        FROM sgs_student_master
-        WHERE COALESCE(record_status, 'Active') = 'Active'
-          AND COALESCE(is_active, true) = true
+            student.student_id,
+            student.class_id,
+            student.student_email,
+            COALESCE(NULLIF(BTRIM(class_master.class_name), ''), NULLIF(BTRIM(student.class_name), ''), student.class_id::text) AS class_name
+        FROM sgs_student_master student
+        LEFT JOIN sgs_class_master class_master
+          ON class_master.class_id = student.class_id
+        WHERE COALESCE(student.record_status, 'Active') = 'Active'
+          AND COALESCE(student.is_active, true) = true
+          AND LOWER(BTRIM(student.student_email)) = LOWER(BTRIM(%s))
         ORDER BY
-            CASE WHEN admission_no IS NULL THEN 1 ELSE 0 END,
-            student_id
+            CASE WHEN student.admission_no IS NULL THEN 1 ELSE 0 END,
+            student.student_id
         LIMIT 1;
     """
     assignment_query = """
@@ -1118,7 +1128,7 @@ def get_notifications():
     try:
         with get_connection() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(student_query)
+                cursor.execute(student_query, (email,))
                 student = cursor.fetchone()
                 if student is None:
                     raise HTTPException(status_code=404, detail="No active student found.")
@@ -1194,6 +1204,41 @@ def get_notifications():
         "notifications": notifications,
         "assignment_alert_error": assignment_alert_error,
     }
+
+
+@app.get("/help-support")
+def get_help_support():
+    query = """
+        SELECT
+            help_id,
+            category,
+            question,
+            answer,
+            support_email,
+            support_phone,
+            display_order
+        FROM sgs_help_support
+        WHERE COALESCE(record_status, 'Active') = 'Active'
+          AND COALESCE(is_active, true) = true
+        ORDER BY display_order ASC, help_id ASC;
+    """
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query)
+                items = cursor.fetchall()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Help and support table is missing. Confirm sgs_help_support exists.",
+        ) from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch help and support information.") from error
+
+    support_email = next((item["support_email"] for item in items if item.get("support_email")), None)
+    support_phone = next((item["support_phone"] for item in items if item.get("support_phone")), None)
+    return {"support_email": support_email, "support_phone": support_phone, "items": items}
 
 
 def normalize_quiz_questions(raw_questions) -> list[dict]:

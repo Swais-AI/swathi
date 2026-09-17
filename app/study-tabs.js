@@ -36,9 +36,9 @@ const studyTabs = [
     title: "Study C: Assessment",
     href: "/assessments",
     rows: [
-      ["1) Mock Test", "/assessments"],
-      ["2) Student Analysis", "/assessments"],
-      ["3) Teacher Remark", "/assessments"]
+      ["1) Mock Test", "/assessments?view=mock-test"],
+      ["2) Student Analysis", "/assessments?view=student-analysis"],
+      ["3) Teacher Remark", "/assessments?view=teacher-remark"]
     ]
   }
 ];
@@ -74,10 +74,10 @@ function PanelIcon({ name }) {
   );
 }
 
-export default function StudyTabs() {
+export default function StudyTabs({ onAssessmentViewChange }) {
   const pathname = usePathname();
   const currentPath = withoutBasePath(pathname);
-  const activeIndex = studyTabs.findIndex((tab) => tab.rows.some(([, href]) => currentPath === href || currentPath.startsWith(`${href}/`)));
+  const activeIndex = studyTabs.findIndex((tab) => currentPath === tab.href || currentPath.startsWith(`${tab.href}/`));
 
   return (
     <Accordion.Root
@@ -104,7 +104,17 @@ export default function StudyTabs() {
           <Accordion.Content className="panel-content" forceMount>
             <div className="panel-body">
               {tab.rows.map(([label, href]) => (
-                <Link className="study-row" href={href} key={label}>
+                <Link
+                  className="study-row"
+                  href={href}
+                  key={label}
+                  onClick={() => {
+                    if (tab.href === "/assessments" && onAssessmentViewChange) {
+                      const view = href.split("view=")[1];
+                      if (view) onAssessmentViewChange(view);
+                    }
+                  }}
+                >
                   <span>{label}</span>
                 </Link>
               ))}

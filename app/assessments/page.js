@@ -401,23 +401,24 @@ function MockTestView() {
 export default function AssessmentsPage() {
   const [activeOption, setActiveOption] = useState("mock-test");
 
+  useEffect(() => {
+    function applyRequestedView() {
+      const requestedView = new URLSearchParams(window.location.search).get("view");
+      if (["mock-test", "student-analysis", "teacher-remark"].includes(requestedView)) {
+        setActiveOption(requestedView);
+      }
+    }
+
+    applyRequestedView();
+    window.addEventListener("popstate", applyRequestedView);
+    return () => window.removeEventListener("popstate", applyRequestedView);
+  }, []);
+
   return (
     <DashboardShell>
       <section className="module-page">
-        <StudyTabs />
+        <StudyTabs onAssessmentViewChange={setActiveOption} />
         <div className="module-content-area assessment-content-area">
-          <div className="module-action-grid assessment-option-grid">
-            <button
-              className={`module-action ${activeOption === "mock-test" ? "active" : ""}`}
-              type="button"
-              onClick={() => setActiveOption("mock-test")}
-            >
-              Mock Test
-            </button>
-            <button className={`module-action ${activeOption === "student-analysis" ? "active" : ""}`} type="button" onClick={() => setActiveOption("student-analysis")}>Student Analysis</button>
-            <button className={`module-action ${activeOption === "teacher-remark" ? "active" : ""}`} type="button" onClick={() => setActiveOption("teacher-remark")}>Teacher Remark</button>
-          </div>
-
           {activeOption === "mock-test" && <MockTestView />}
           {activeOption === "student-analysis" && <StudentAnalysisView />}
           {activeOption === "teacher-remark" && <TeacherRemarkView />}

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getApiBaseUrl } from "./api-base-url";
+import { getLoggedInUserEmail } from "./login-session";
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -39,6 +40,7 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const [assignmentAlertError, setAssignmentAlertError] = useState("");
+  const storageKeyRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -47,7 +49,12 @@ export default function NotificationBell() {
       setError("");
 
       try {
-        const response = await fetch(`${API_BASE_URL}/notifications`);
+        const email = await getLoggedInUserEmail();
+        if (!email) throw new Error("Logged-in student email is unavailable.");
+        storageKeyRef.current = `sgs-read-notifications:${email.toLowerCase()}`;
+        const storedIds = JSON.parse(window.localStorage.getItem(storageKeyRef.current) || "[]");
+        const readIds = new Set(Array.isArray(storedIds) ? storedIds : []);
+        const response = await fetch(`${API_BASE_URL}/notifications?${new URLSearchParams({ email }).toString()}`);
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
@@ -55,8 +62,12 @@ export default function NotificationBell() {
         }
 
         if (!cancelled) {
-          setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
-          setCount(Number.isFinite(data.count) ? data.count : 0);
+          const nextNotifications = (Array.isArray(data.notifications) ? data.notifications : []).map((item) => ({
+            ...item,
+            unread: !item.is_read && !readIds.has(item.id)
+          }));
+          setNotifications(nextNotifications);
+          setCount(nextNotifications.filter((item) => item.unread).length);
           setAssignmentAlertError(typeof data.assignment_alert_error === "string" ? data.assignment_alert_error : "");
         }
       } catch (loadError) {
@@ -75,6 +86,19 @@ export default function NotificationBell() {
       cancelled = true;
     };
   }, []);
+
+  function toggleNotifications() {
+    setOpen((current) => {
+      const nextOpen = !current;
+      if (nextOpen && storageKeyRef.current) {
+        const readIds = notifications.map((item) => item.id);
+        window.localStorage.setItem(storageKeyRef.current, JSON.stringify(readIds));
+        setNotifications((items) => items.map((item) => ({ ...item, unread: false })));
+        setCount(0);
+      }
+      return nextOpen;
+    });
+  }
 
   useEffect(() => {
     if (!open) {
@@ -96,7 +120,7 @@ export default function NotificationBell() {
 
   return (
     <div className="notification-menu" ref={menuRef}>
-      <button className="bell-button" aria-label="Notifications" type="button" onClick={() => setOpen((current) => !current)}>
+      <button className="bell-button" aria-label={`${count} unread notifications`} title="Notifications" type="button" onClick={toggleNotifications}>
         <span className="bell-icon" aria-hidden="true" />
         {count > 0 && <span className="badge">{count}</span>}
       </button>
@@ -120,7 +144,7 @@ export default function NotificationBell() {
               : item.applicable_class || "All";
 
             return (
-              <article className={`notice-item ${isAssignment ? "assignment-alert" : ""}`} key={item.id}>
+              <article className={`notice-item ${item.unread ? "unread" : ""} ${isAssignment ? "assignment-alert" : ""}`} key={item.id}>
                 <div>
                   <strong>{item.title || (isAssignment ? "Assignment" : "Notice")}</strong>
                   <time>{formatNoticeDate(itemDate)}</time>
