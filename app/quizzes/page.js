@@ -36,6 +36,9 @@ function waitBeforeAiRequest() {
 }
 
 export default function QuizzesPage() {
+  const [studentEmail, setStudentEmail] = useState("");
+  const [subjects, setSubjects] = useState([]);
+  const [subjectId, setSubjectId] = useState("");
   const [chapters, setChapters] = useState([]);
   const [chapterId, setChapterId] = useState("");
   const [questions, setQuestions] = useState([]);
@@ -56,29 +59,33 @@ export default function QuizzesPage() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadChapters() {
+    async function loadStudentSubjects() {
       setLoadingChapters(true);
       setError("");
 
       try {
         const email = await getLoggedInUserEmail();
         if (!email) throw new Error("Logged-in student email is unavailable.");
-        const response = await fetch(`${API_BASE_URL}/quiz-chapters?${new URLSearchParams({ email }).toString()}`);
+        const studentResponse = await fetch(`${API_BASE_URL}/students/current?${new URLSearchParams({ email }).toString()}`);
+        const studentData = await studentResponse.json().catch(() => ({}));
+        if (!studentResponse.ok) {
+          throw new Error(typeof studentData.detail === "string" ? studentData.detail : "Unable to load student class.");
+        }
+
+        const classId = studentData.student?.class_id;
+        const response = await fetch(`${API_BASE_URL}/subjects?${new URLSearchParams({ class_id: String(classId), email }).toString()}`);
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load quiz chapters.");
+          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load subjects.");
         }
 
-        const availableChapters = Array.isArray(data.chapters) ? data.chapters : [];
+        const availableSubjects = Array.isArray(data.subjects) ? data.subjects : [];
         if (!cancelled) {
-          setChapters(availableChapters);
-          const firstChapter = availableChapters[0];
-          setChapterId(firstChapter ? String(firstChapter.chapter_id) : "");
-          setChapterTitle(firstChapter?.content_title || "Select Chapter");
-          if (availableChapters.length === 0) {
-            setError("No linked chapter content is available for quiz generation.");
-          }
+          setStudentEmail(email);
+          setSubjects(availableSubjects);
+          setSubjectId(availableSubjects[0] ? String(availableSubjects[0].subject_id) : "");
+          if (availableSubjects.length === 0) setError("No subjects are assigned to this class.");
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -91,11 +98,52 @@ export default function QuizzesPage() {
       }
     }
 
-    loadChapters();
+    loadStudentSubjects();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadChaptersForSubject() {
+      setChapters([]);
+      setChapterId("");
+      setChapterTitle("Select Chapter");
+      setQuestions([]);
+      setQuizRequested(false);
+      if (!studentEmail || !subjectId) {
+        setLoadingChapters(false);
+        return;
+      }
+
+      setLoadingChapters(true);
+      setError("");
+      try {
+        const params = new URLSearchParams({ email: studentEmail, subject_id: subjectId });
+        const response = await fetch(`${API_BASE_URL}/quiz-chapters?${params.toString()}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load quiz chapters.");
+
+        const availableChapters = Array.isArray(data.chapters) ? data.chapters : [];
+        if (!cancelled) {
+          setChapters(availableChapters);
+          const firstChapter = availableChapters[0];
+          setChapterId(firstChapter ? String(firstChapter.chapter_id) : "");
+          setChapterTitle(firstChapter?.content_title || "Select Chapter");
+          if (availableChapters.length === 0) setError("No linked chapters are available for this subject.");
+        }
+      } catch (loadError) {
+        if (!cancelled) setError(loadError.message || "Unable to load quiz chapters.");
+      } finally {
+        if (!cancelled) setLoadingChapters(false);
+      }
+    }
+
+    loadChaptersForSubject();
+    return () => { cancelled = true; };
+  }, [studentEmail, subjectId]);
 
   const score = useMemo(() => {
     return questions.reduce((total, question, index) => {
@@ -245,6 +293,16 @@ export default function QuizzesPage() {
               </div>
 
               <form className="material-filter-row quiz-filter-row" aria-label="Quiz filters">
+                <AppSelect
+                  value={subjectId}
+                  options={subjects.map((subject) => ({ value: subject.subject_id, label: subject.subject_name }))}
+                  ariaLabel="Select subject"
+                  onChange={(value) => setSubjectId(String(value))}
+                  disabled={loading || subjects.length === 0}
+                  placeholder="Select Subject"
+                  searchable
+                  className="quiz-subject-app-select"
+                />
                 <AppSelect
                   value={chapterId}
                   options={chapters.map((chapter) => ({
