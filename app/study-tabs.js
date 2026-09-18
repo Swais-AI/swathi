@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as Accordion from "@radix-ui/react-accordion";
-import { withBasePath, withoutBasePath } from "./base-path";
+import { withoutBasePath } from "./base-path";
 
 const studyTabs = [
   {
@@ -105,8 +105,8 @@ export default function StudyTabs({ onAssessmentViewChange, onAssignmentViewChan
             <div className="panel-body">
               {tab.rows.map(([label, href]) => {
                 const view = href.split("view=")[1];
-                const assignmentButton = tab.href === "/assignments" && currentPath === "/assignments" && onAssignmentViewChange;
-                const assessmentButton = tab.href === "/assessments" && currentPath === "/assessments" && onAssessmentViewChange;
+                const assignmentButton = tab.href === "/assignments" && onAssignmentViewChange;
+                const assessmentButton = tab.href === "/assessments" && onAssessmentViewChange;
 
                 if (assignmentButton || assessmentButton) {
                   return (
@@ -115,7 +115,7 @@ export default function StudyTabs({ onAssessmentViewChange, onAssignmentViewChan
                       type="button"
                       key={label}
                       onClick={() => {
-                        window.history.replaceState({}, "", withBasePath(href));
+                        window.history.replaceState({}, "", `${window.location.pathname}?view=${encodeURIComponent(view)}`);
                         if (assignmentButton) onAssignmentViewChange(view);
                         if (assessmentButton) onAssessmentViewChange(view);
                       }}
