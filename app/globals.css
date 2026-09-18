@@ -1189,6 +1189,7 @@ button {
 }
 
 .study-row {
+  width: 100%;
   min-height: 46px;
   display: flex;
   align-items: center;
@@ -1199,7 +1200,10 @@ button {
   color: #07101f;
   text-decoration: none;
   font-size: 20px;
+  font-family: inherit;
   font-weight: 650;
+  text-align: left;
+  cursor: pointer;
   transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
 }
 
