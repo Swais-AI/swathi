@@ -103,33 +103,34 @@ export default function StudyTabs({ onAssessmentViewChange, onAssignmentViewChan
           <div className="accent-line" />
           <Accordion.Content className="panel-content" forceMount>
             <div className="panel-body">
-              {tab.rows.map(([label, href]) => (
-                <Link
-                  className="study-row"
-                  href={href}
-                  key={label}
-                  onClick={(event) => {
-                    if (tab.href === "/assignments" && onAssignmentViewChange) {
-                      const view = href.split("view=")[1];
-                      if (view) {
-                        event.preventDefault();
-                        window.history.pushState({}, "", withBasePath(href));
-                        onAssignmentViewChange(view);
-                      }
-                    }
-                    if (tab.href === "/assessments" && onAssessmentViewChange) {
-                      const view = href.split("view=")[1];
-                      if (view) {
-                        event.preventDefault();
-                        window.history.pushState({}, "", withBasePath(href));
-                        onAssessmentViewChange(view);
-                      }
-                    }
-                  }}
-                >
-                  <span>{label}</span>
-                </Link>
-              ))}
+              {tab.rows.map(([label, href]) => {
+                const view = href.split("view=")[1];
+                const assignmentButton = tab.href === "/assignments" && currentPath === "/assignments" && onAssignmentViewChange;
+                const assessmentButton = tab.href === "/assessments" && currentPath === "/assessments" && onAssessmentViewChange;
+
+                if (assignmentButton || assessmentButton) {
+                  return (
+                    <button
+                      className="study-row"
+                      type="button"
+                      key={label}
+                      onClick={() => {
+                        window.history.replaceState({}, "", withBasePath(href));
+                        if (assignmentButton) onAssignmentViewChange(view);
+                        if (assessmentButton) onAssessmentViewChange(view);
+                      }}
+                    >
+                      <span>{label}</span>
+                    </button>
+                  );
+                }
+
+                return (
+                  <Link className="study-row" href={href} key={label}>
+                    <span>{label}</span>
+                  </Link>
+                );
+              })}
             </div>
           </Accordion.Content>
         </Accordion.Item>
