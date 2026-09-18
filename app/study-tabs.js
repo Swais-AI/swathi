@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as Accordion from "@radix-ui/react-accordion";
-import { withoutBasePath } from "./base-path";
+import { withBasePath, withoutBasePath } from "./base-path";
 
 const studyTabs = [
   {
@@ -25,9 +25,9 @@ const studyTabs = [
     title: "Study B: Assignment",
     href: "/assignments",
     rows: [
-      ["1) My Assignments", "/assignments"],
-      ["2) Submit Assignment", "/assignments"],
-      ["3) Feedback & Marks", "/assignments"]
+      ["1) My Assignments", "/assignments?view=materials"],
+      ["2) Submit Assignment", "/assignments?view=submit"],
+      ["3) Feedback & Marks", "/assignments?view=feedback"]
     ]
   },
   {
@@ -74,7 +74,7 @@ function PanelIcon({ name }) {
   );
 }
 
-export default function StudyTabs({ onAssessmentViewChange }) {
+export default function StudyTabs({ onAssessmentViewChange, onAssignmentViewChange }) {
   const pathname = usePathname();
   const currentPath = withoutBasePath(pathname);
   const activeIndex = studyTabs.findIndex((tab) => currentPath === tab.href || currentPath.startsWith(`${tab.href}/`));
@@ -108,10 +108,22 @@ export default function StudyTabs({ onAssessmentViewChange }) {
                   className="study-row"
                   href={href}
                   key={label}
-                  onClick={() => {
+                  onClick={(event) => {
+                    if (tab.href === "/assignments" && onAssignmentViewChange) {
+                      const view = href.split("view=")[1];
+                      if (view) {
+                        event.preventDefault();
+                        window.history.pushState({}, "", withBasePath(href));
+                        onAssignmentViewChange(view);
+                      }
+                    }
                     if (tab.href === "/assessments" && onAssessmentViewChange) {
                       const view = href.split("view=")[1];
-                      if (view) onAssessmentViewChange(view);
+                      if (view) {
+                        event.preventDefault();
+                        window.history.pushState({}, "", withBasePath(href));
+                        onAssessmentViewChange(view);
+                      }
                     }
                   }}
                 >
