@@ -76,6 +76,7 @@ export default function AssignmentsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [activeView, setActiveView] = useState("materials");
 
   async function loadAssignments() {
     setLoading(true);
@@ -98,7 +99,7 @@ export default function AssignmentsPage() {
       setAssignments(nextAssignments);
       setSelectedAssignment((current) => {
         if (current) {
-          return nextAssignmentsWithMaterials.find((assignment) => assignment.assignment_id === current.assignment_id) || nextAssignmentsWithMaterials[0] || null;
+          return nextAssignments.find((assignment) => assignment.assignment_id === current.assignment_id) || nextAssignmentsWithMaterials[0] || null;
         }
         return nextAssignmentsWithMaterials[0] || null;
       });
@@ -113,6 +114,19 @@ export default function AssignmentsPage() {
 
   useEffect(() => {
     loadAssignments();
+  }, []);
+
+  useEffect(() => {
+    function applyRequestedView() {
+      const requestedView = new URLSearchParams(window.location.search).get("view");
+      if (["materials", "submit", "feedback"].includes(requestedView)) {
+        setActiveView(requestedView);
+      }
+    }
+
+    applyRequestedView();
+    window.addEventListener("popstate", applyRequestedView);
+    return () => window.removeEventListener("popstate", applyRequestedView);
   }, []);
 
   function selectAssignment(assignment) {
@@ -209,15 +223,60 @@ export default function AssignmentsPage() {
   }
 
   const assignmentsWithMaterials = assignments.filter((assignment) => assignment.attachments?.length);
+  const submittedAssignments = assignments.filter((assignment) => assignment.submitted_at || assignment.submitted_file_name);
+
+  function changeView(view) {
+    setActiveView(view);
+    setMessage("");
+    setError("");
+  }
+
+  function renderUploadCard() {
+    return (
+      <article className="module-card assignment-upload-card" ref={uploadCardRef}>
+        <div className="card-title-row">
+          <h2>{selectedAssignment?.assignment_title || "Select an assignment"}</h2>
+          {selectedAssignment && (
+            <span className={`status-pill ${(selectedAssignment.status || "Not Started").toLowerCase().replaceAll(" ", "-")}`}>
+              {selectedAssignment.status || "Not Started"}
+            </span>
+          )}
+        </div>
+        <div className="meta-row">
+          <span>Due Date: {formatDate(selectedAssignment?.due_date)}</span>
+          <span>Assignment ID: {selectedAssignment?.assignment_id || "-"}</span>
+        </div>
+        <p>{selectedAssignment?.assignment_text || "Choose an assignment from the list to upload your work."}</p>
+        <div className="upload-zone" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+          <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={handleFileChange} hidden />
+          <div className="upload-icon">Upload</div>
+          <strong>Drag & drop your file here</strong>
+          <span>or</span>
+          <button className="soft-button" type="button" onClick={handleBrowseFiles} disabled={!selectedAssignment || saving}>Browse Files</button>
+          <small>Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 10 MB)</small>
+        </div>
+        <div className="submit-row">
+          <div>
+            <p>{selectedFile ? `Selected: ${selectedFile.name} (${formatFileSize(selectedFile.size)})` : selectedAssignment?.submitted_file_name ? `Uploaded: ${selectedAssignment.submitted_file_name}` : "No file uploaded yet"}</p>
+            <p>Last submitted: {formatDateTime(selectedAssignment?.submitted_at)}</p>
+          </div>
+          <button className="primary-button" type="button" onClick={handleSubmitAssignment} disabled={!selectedAssignment || !selectedFile || saving}>
+            {saving ? "Submitting..." : selectedAssignment?.submitted_at ? "Resubmit Assignment" : "Submit Assignment"}
+          </button>
+        </div>
+      </article>
+    );
+  }
 
   return (
     <DashboardShell>
       <section className="module-page">
-        <StudyTabs />
+        <StudyTabs onAssignmentViewChange={changeView} />
         <div className="module-content-area">
           {error && <div className="tip-box red-action">{error}</div>}
           {message && <div className="download-message">{message}</div>}
 
+          {activeView === "materials" && <>
           <div className="assignment-layout">
             <article className="module-card assignment-list-card">
               <div className="card-title-row">
@@ -244,59 +303,56 @@ export default function AssignmentsPage() {
               <div className="tip-box">Tip: Submit your assignments on time to get early feedback and improve your score!</div>
             </article>
 
-            <article className="module-card assignment-upload-card" ref={uploadCardRef}>
-              <div className="card-title-row">
-                <h2>{selectedAssignment?.assignment_title || "Select an assignment"}</h2>
-                {selectedAssignment && (
-                  <span className={`status-pill ${(selectedAssignment.status || "Not Started").toLowerCase().replaceAll(" ", "-")}`}>
-                    {selectedAssignment.status || "Not Started"}
-                  </span>
-                )}
-              </div>
-              <div className="meta-row">
-                <span>Due Date: {formatDate(selectedAssignment?.due_date)}</span>
-                <span>Assignment ID: {selectedAssignment?.assignment_id || "-"}</span>
-              </div>
-              <p>{selectedAssignment?.assignment_text || "Choose an assignment from the list to upload your work."}</p>
-              <div
-                className="upload-zone"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={handleDrop}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                  onChange={handleFileChange}
-                  hidden
-                />
-                <div className="upload-icon">Upload</div>
-                <strong>Drag & drop your file here</strong>
-                <span>or</span>
-                <button className="soft-button" type="button" onClick={handleBrowseFiles} disabled={!selectedAssignment || saving}>Browse Files</button>
-                <small>Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 10 MB)</small>
-              </div>
-              <div className="submit-row">
-                <div>
-                  <p>{selectedFile ? `Selected: ${selectedFile.name} (${formatFileSize(selectedFile.size)})` : selectedAssignment?.submitted_file_name ? `Uploaded: ${selectedAssignment.submitted_file_name}` : "No file uploaded yet"}</p>
-                  <p>Last submitted: {formatDateTime(selectedAssignment?.submitted_at)}</p>
-                </div>
-                <button className="primary-button" type="button" onClick={handleSubmitAssignment} disabled={!selectedAssignment || !selectedFile || saving}>
-                  {saving ? "Submitting..." : "Submit Assignment"}
-                </button>
-              </div>
-            </article>
+            {renderUploadCard()}
           </div>
 
-          <article className="module-card workflow-card">
-            <h2>Assignment Submission & Feedback</h2>
-            <div className="workflow-steps">
-              <div><span>1</span><p>Upload / Type Assignment</p></div>
-              <div><span>2</span><p>Teacher Review & Feedback</p></div>
-              <div><span>3</span><p>Revise (If Needed)</p></div>
-              <div><span>4</span><p>Final Submission Done</p></div>
-            </div>
-          </article>
+          </>}
+
+          {activeView === "submit" && (
+            <article className="module-card assignment-status-card">
+              <div className="card-title-row"><h2>Assignment Submission Status</h2><span className="status-pill">{assignments.length}</span></div>
+              <table className="data-table">
+                <thead><tr><th>Assignment</th><th>Due Date</th><th>Status</th></tr></thead>
+                <tbody>
+                  {assignments.map((assignment) => {
+                    const completed = Boolean(assignment.submitted_at || assignment.submitted_file_name);
+                    return (
+                      <tr key={assignment.assignment_id}>
+                        <td>{assignment.assignment_title}</td>
+                        <td>{formatDate(assignment.due_date)}</td>
+                        <td><span className={`completion-status ${completed ? "completed" : "not-completed"}`}>{completed ? "Completed" : "Not Completed"}</span></td>
+                      </tr>
+                    );
+                  })}
+                  {!loading && assignments.length === 0 && <tr><td colSpan="3">No assignments available.</td></tr>}
+                </tbody>
+              </table>
+            </article>
+          )}
+
+          {activeView === "feedback" && (
+            <article className="module-card assignment-feedback-card">
+              <div className="card-title-row"><h2>Feedback &amp; Marks</h2><span className="status-pill">{submittedAssignments.length}</span></div>
+              <table className="data-table">
+                <thead><tr><th>Assignment</th><th>Submitted</th><th>Status</th><th>Marks</th><th>Feedback</th></tr></thead>
+                <tbody>
+                  {submittedAssignments.map((assignment) => {
+                    const hasMarks = assignment.marks_obtained !== null && assignment.marks_obtained !== undefined;
+                    return (
+                      <tr key={assignment.assignment_id}>
+                        <td>{assignment.assignment_title}</td>
+                        <td>{formatDateTime(assignment.submitted_at)}</td>
+                        <td>{assignment.status || "Submitted"}</td>
+                        <td>{hasMarks ? `${assignment.marks_obtained}${assignment.total_marks != null ? ` / ${assignment.total_marks}` : ""}` : "Not graded"}</td>
+                        <td>{hasMarks ? "No teacher feedback added." : "Awaiting teacher review."}</td>
+                      </tr>
+                    );
+                  })}
+                  {!loading && submittedAssignments.length === 0 && <tr><td colSpan="5">No submitted assignments available.</td></tr>}
+                </tbody>
+              </table>
+            </article>
+          )}
         </div>
       </section>
     </DashboardShell>

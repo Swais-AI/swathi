@@ -243,11 +243,10 @@ def fetch_current_student_record(student_email: str | None = None) -> dict:
         LEFT JOIN sgs_class_master class_master
           ON class_master.class_id = student.class_id
         WHERE COALESCE(student.record_status, 'Active') = 'Active'
-          AND COALESCE(student.is_active, true) = true
           {email_filter}
         ORDER BY
             CASE WHEN student.admission_no IS NULL THEN 1 ELSE 0 END,
-            student.student_id
+            student.student_id DESC
         LIMIT 1;
     """
 
@@ -281,7 +280,6 @@ def fetch_student_email(student_id: int) -> str | None:
                     FROM sgs_student_master
                     WHERE student_id = %s
                       AND COALESCE(record_status, 'Active') = 'Active'
-                      AND COALESCE(is_active, true) = true
                     LIMIT 1;
                     """,
                     (student_id,),
@@ -546,6 +544,9 @@ def get_current_assignments(
                         a.subject_id,
                         r.assignment_result_id,
                         r.status AS submission_status,
+                        r.marks_obtained,
+                        r.total_marks,
+                        r.percentage,
                         r.submitted_at,
                         r.submitted_file_name,
                         r.submitted_file_size
@@ -635,6 +636,9 @@ def get_current_assignments(
                 "status": "Submitted" if submitted else (assignment.get("submission_status") or "Not Started"),
                 "action": "View" if submitted else "Start",
                 "submitted_at": assignment.get("submitted_at"),
+                "marks_obtained": assignment.get("marks_obtained"),
+                "total_marks": assignment.get("total_marks"),
+                "percentage": assignment.get("percentage"),
                 "submitted_file_name": assignment.get("submitted_file_name"),
                 "submitted_file_size": assignment.get("submitted_file_size"),
             }
@@ -1072,11 +1076,10 @@ def get_notifications(email: str = Query(..., min_length=3, max_length=150)):
         LEFT JOIN sgs_class_master class_master
           ON class_master.class_id = student.class_id
         WHERE COALESCE(student.record_status, 'Active') = 'Active'
-          AND COALESCE(student.is_active, true) = true
           AND LOWER(BTRIM(student.student_email)) = LOWER(BTRIM(%s))
         ORDER BY
             CASE WHEN student.admission_no IS NULL THEN 1 ELSE 0 END,
-            student.student_id
+            student.student_id DESC
         LIMIT 1;
     """
     assignment_query = """

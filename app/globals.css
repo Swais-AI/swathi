@@ -1135,6 +1135,31 @@ button {
   font-weight: 800;
 }
 
+.assignment-status-card .data-table,
+.assignment-feedback-card .data-table {
+  margin-top: 18px;
+}
+
+.completion-status {
+  display: inline-flex;
+  min-width: 112px;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.completion-status.completed {
+  background: #e6f8ed;
+  color: #14783a;
+}
+
+.completion-status.not-completed {
+  background: #fff0ee;
+  color: #c83226;
+}
+
 @media (max-width: 720px) {
   .help-action-grid {
     grid-template-columns: 1fr;
