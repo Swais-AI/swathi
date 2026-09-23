@@ -2309,6 +2309,13 @@ button {
   grid-template-columns: minmax(320px, 0.72fr) minmax(480px, 1.28fr);
 }
 
+.assignment-list-card .table-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
 .bar-chart > .chart-labels {
   position: absolute;
   right: 10px;
