@@ -4554,13 +4554,28 @@ button {
   .notice-dropdown {
     position: fixed;
     top: 128px;
-    right: 12px;
-    left: 12px;
+    right: 10px;
+    left: 10px;
     z-index: 1050;
     width: auto;
     max-width: none;
     max-height: calc(100dvh - 148px);
+    box-sizing: border-box;
+    padding: 10px;
+    overflow-x: hidden;
     overscroll-behavior: contain;
+  }
+
+  .notice-dropdown-head,
+  .notice-item,
+  .notice-item > div,
+  .notice-item footer {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .notice-item time {
+    white-space: nowrap;
   }
 
   .notice-item strong,
@@ -4605,12 +4620,22 @@ button {
     margin: 20px 16px 32px;
   }
 
+  .study-tab-strip {
+    width: auto;
+    margin-inline: 12px;
+  }
+
+  .study-tab-strip .study-panel {
+    min-width: 0;
+  }
+
   .chapter-content-card {
     padding: 22px 18px 26px;
   }
 
   .module-card {
     padding: 22px 18px 26px;
+    min-width: 0;
   }
 
   .chapter-content-card h2 {
@@ -4636,6 +4661,170 @@ button {
   .learning-form-grid,
   .result-grid {
     grid-template-columns: 1fr;
+  }
+
+  .assignment-layout > *,
+  .assignment-submit-layout > * {
+    min-width: 0;
+  }
+
+  .assignment-list-card .data-table,
+  .assignment-status-card .data-table,
+  .assignment-feedback-card .data-table,
+  .assignment-list-card .data-table tbody,
+  .assignment-status-card .data-table tbody,
+  .assignment-feedback-card .data-table tbody,
+  .assignment-list-card .data-table tr,
+  .assignment-status-card .data-table tr,
+  .assignment-feedback-card .data-table tr,
+  .assignment-list-card .data-table td,
+  .assignment-status-card .data-table td,
+  .assignment-feedback-card .data-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .assignment-list-card .data-table thead,
+  .assignment-status-card .data-table thead,
+  .assignment-feedback-card .data-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .assignment-list-card .data-table tr,
+  .assignment-status-card .data-table tr,
+  .assignment-feedback-card .data-table tr {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border: 1px solid rgba(100, 116, 139, 0.55);
+    border-radius: 9px;
+    background: rgba(15, 23, 42, 0.5);
+  }
+
+  .assignment-list-card .data-table td,
+  .assignment-status-card .data-table td,
+  .assignment-feedback-card .data-table td {
+    display: grid;
+    grid-template-columns: minmax(88px, 0.42fr) minmax(0, 1fr);
+    gap: 10px;
+    padding: 9px 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .assignment-list-card .data-table td::before,
+  .assignment-status-card .data-table td::before,
+  .assignment-feedback-card .data-table td::before {
+    content: attr(data-label);
+    color: #93c5fd;
+    font-weight: 800;
+  }
+
+  .assignment-list-card .data-table td:last-child,
+  .assignment-status-card .data-table td:last-child,
+  .assignment-feedback-card .data-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .upload-zone,
+  .submit-row,
+  .card-title-row,
+  .meta-row {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .assessment-dashboard {
+    width: 100%;
+    min-width: 0;
+    padding: 18px 14px;
+    overflow: hidden;
+  }
+
+  .assessment-dashboard-head {
+    align-items: flex-start;
+  }
+
+  .assessment-dashboard-head h2 {
+    font-size: 23px;
+    overflow-wrap: anywhere;
+  }
+
+  .analysis-grid,
+  .student-analysis-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analysis-card {
+    min-width: 0;
+    min-height: 0;
+    padding: 17px 14px;
+    overflow: hidden;
+  }
+
+  .analysis-card h3 {
+    font-size: 18px;
+    overflow-wrap: anywhere;
+  }
+
+  .performance-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .student-analysis-view .ring-chart {
+    width: 138px;
+    height: 138px;
+    align-self: center;
+    margin-bottom: 30px;
+  }
+
+  .student-analysis-view .ring-chart::after {
+    inset: 29px;
+  }
+
+  .chart-panel,
+  .chart-panel svg {
+    max-width: 100%;
+  }
+
+  .chart-labels {
+    flex-wrap: wrap;
+  }
+
+  .test-row {
+    align-items: flex-start;
+    flex-direction: column;
+    overflow-wrap: anywhere;
+  }
+
+  .test-row strong {
+    min-width: 0;
+  }
+
+  .focus-row.dynamic-focus-row {
+    grid-template-columns: minmax(0, 1fr) 42px;
+  }
+
+  .dynamic-focus-row > div:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .empty-graph-card {
+    min-height: 220px;
+  }
+
+  .empty-graph,
+  .empty-bars,
+  .empty-rows,
+  .empty-progress,
+  .empty-heatmap,
+  .empty-line-chart {
+    max-width: 100%;
   }
 
   .data-table {
@@ -4704,4 +4893,49 @@ button {
   .accent-line {
     width: 45%;
   }
+}
+
+@media (max-width: 480px) {
+  .notice-dropdown {
+    top: 118px;
+    max-height: calc(100dvh - 132px);
+  }
+
+  .notice-item > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .notice-item footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .notice-item strong,
+  .notice-item p,
+  .notice-item footer span {
+    max-width: 100%;
+  }
+
+  .study-tab-strip {
+    margin-inline: 10px;
+  }
+
+  .panel-head {
+    padding-inline: 14px;
+  }
+}
+.assignment-question-block {
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(111, 151, 207, 0.45);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.assignment-question-block p,
+.assignment-description-cell {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

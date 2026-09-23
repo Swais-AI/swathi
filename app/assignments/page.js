@@ -95,13 +95,12 @@ export default function AssignmentsPage() {
       }
 
       const nextAssignments = Array.isArray(data.assignments) ? data.assignments : [];
-      const nextAssignmentsWithMaterials = nextAssignments.filter((assignment) => assignment.attachments?.length);
       setAssignments(nextAssignments);
       setSelectedAssignment((current) => {
         if (current) {
-          return nextAssignments.find((assignment) => assignment.assignment_id === current.assignment_id) || nextAssignmentsWithMaterials[0] || null;
+          return nextAssignments.find((assignment) => assignment.assignment_id === current.assignment_id) || nextAssignments[0] || null;
         }
-        return nextAssignmentsWithMaterials[0] || null;
+        return nextAssignments[0] || null;
       });
     } catch (loadError) {
       setError(loadError.message || "Unable to load assignments.");
@@ -246,7 +245,12 @@ export default function AssignmentsPage() {
           <span>Due Date: {formatDate(selectedAssignment?.due_date)}</span>
           <span>Assignment ID: {selectedAssignment?.assignment_id || "-"}</span>
         </div>
-        <p>{selectedAssignment?.assignment_text || "Choose an assignment from the list to upload your work."}</p>
+        {selectedAssignment?.assignment_text ? (
+          <div className="assignment-question-block">
+            <strong>Assignment Questions / Description</strong>
+            <p>{selectedAssignment.assignment_text}</p>
+          </div>
+        ) : <p>Choose an assignment from the list to upload your work.</p>}
         <div className="upload-zone" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
           <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={handleFileChange} hidden />
           <div className="upload-icon">Upload</div>
@@ -284,20 +288,23 @@ export default function AssignmentsPage() {
                 <span className="status-pill">{assignmentsWithMaterials.length}</span>
               </div>
               <table className="data-table">
-                <thead><tr><th>Assignment</th><th>File Name</th><th>Action</th></tr></thead>
+                <thead><tr><th>Assignment</th><th>Questions / Description</th><th>File Name</th><th>Action</th></tr></thead>
                 <tbody>
-                  {assignmentsWithMaterials.flatMap((assignment) => assignment.attachments.map((attachment) => (
-                    <tr key={attachment.file_id}>
-                      <td>{assignment.assignment_title}</td>
-                      <td>{attachment.file_name}</td>
-                      <td>
-                        <a className="table-action" href={attachment.view_url} target="_blank" rel="noreferrer" onClick={() => selectAssignment(assignment)}>
+                  {assignments.flatMap((assignment) => {
+                    const rows = assignment.attachments?.length ? assignment.attachments : [null];
+                    return rows.map((attachment, index) => (
+                    <tr key={attachment?.file_id || `assignment-${assignment.assignment_id}`}>
+                      <td data-label="Assignment">{assignment.assignment_title}</td>
+                      <td data-label="Questions / Description" className="assignment-description-cell">{index === 0 ? (assignment.assignment_text || "-") : ""}</td>
+                      <td data-label="File Name">{attachment?.file_name || "No attachment"}</td>
+                      <td data-label="Action">
+                        {attachment ? <a className="table-action" href={attachment.view_url} target="_blank" rel="noreferrer" onClick={() => selectAssignment(assignment)}>
                           {attachment.file_name?.toLowerCase().endsWith(".pdf") ? "View PDF" : "View File"}
-                        </a>
+                        </a> : <button className="table-action" type="button" onClick={() => selectAssignment(assignment)}>Open</button>}
                       </td>
                     </tr>
-                  )))}
-                  {!loading && assignmentsWithMaterials.length === 0 && <tr><td colSpan="3">No assignment materials available.</td></tr>}
+                  ));})}
+                  {!loading && assignments.length === 0 && <tr><td colSpan="4">No assignments available.</td></tr>}
                 </tbody>
               </table>
               <div className="tip-box">Tip: Submit your assignments on time to get early feedback and improve your score!</div>
@@ -318,9 +325,9 @@ export default function AssignmentsPage() {
                     const completed = Boolean(assignment.submitted_at || assignment.submitted_file_name);
                     return (
                       <tr key={assignment.assignment_id}>
-                        <td>{assignment.assignment_title}</td>
-                        <td>{formatDate(assignment.due_date)}</td>
-                        <td><span className={`completion-status ${completed ? "completed" : "not-completed"}`}>{completed ? "Completed" : "Not Completed"}</span></td>
+                        <td data-label="Assignment">{assignment.assignment_title}</td>
+                        <td data-label="Due Date">{formatDate(assignment.due_date)}</td>
+                        <td data-label="Status"><span className={`completion-status ${completed ? "completed" : "not-completed"}`}>{completed ? "Completed" : "Not Completed"}</span></td>
                       </tr>
                     );
                   })}
@@ -340,11 +347,11 @@ export default function AssignmentsPage() {
                     const hasMarks = assignment.marks_obtained !== null && assignment.marks_obtained !== undefined;
                     return (
                       <tr key={assignment.assignment_id}>
-                        <td>{assignment.assignment_title}</td>
-                        <td>{formatDateTime(assignment.submitted_at)}</td>
-                        <td>{assignment.status || "Submitted"}</td>
-                        <td>{hasMarks ? `${assignment.marks_obtained}${assignment.total_marks != null ? ` / ${assignment.total_marks}` : ""}` : "Not graded"}</td>
-                        <td>{hasMarks ? "No teacher feedback added." : "Awaiting teacher review."}</td>
+                        <td data-label="Assignment">{assignment.assignment_title}</td>
+                        <td data-label="Submitted">{formatDateTime(assignment.submitted_at)}</td>
+                        <td data-label="Status">{assignment.status || "Submitted"}</td>
+                        <td data-label="Marks">{hasMarks ? `${assignment.marks_obtained}${assignment.total_marks != null ? ` / ${assignment.total_marks}` : ""}` : "Not graded"}</td>
+                        <td data-label="Feedback">{hasMarks ? "No teacher feedback added." : "Awaiting teacher review."}</td>
                       </tr>
                     );
                   })}

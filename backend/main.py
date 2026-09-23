@@ -1550,6 +1550,60 @@ def save_quiz_result(payload: QuizResultInput):
     return {"saved": True, "result": saved_result}
 
 
+@app.get("/quiz-results")
+def get_quiz_results(
+    email: str = Query(..., min_length=3, max_length=150),
+):
+    student = fetch_current_student_record(email)
+    query = """
+        SELECT
+            response.response_id,
+            response.chapter_id,
+            response.score,
+            response.total_marks,
+            response.percentage,
+            response.attempt_count,
+            response.completed_at,
+            COALESCE(
+                NULLIF(BTRIM(content.content_title), ''),
+                NULLIF(BTRIM(chapter.chapter_name), ''),
+                'Chapter'
+            ) AS chapter_title,
+            subject.subject_name
+        FROM sgs_quiz_response response
+        LEFT JOIN LATERAL (
+            SELECT chapter_content.content_title
+            FROM sgs_chapter_content chapter_content
+            WHERE chapter_content.chapter_id = response.chapter_id
+            ORDER BY chapter_content.chapter_content_id DESC
+            LIMIT 1
+        ) content ON true
+        LEFT JOIN sgs_chapter_master chapter ON chapter.chapter_id = response.chapter_id
+        LEFT JOIN sgs_subject_master subject ON subject.subject_id = response.subject_id
+        WHERE response.student_id = %s
+          AND COALESCE(response.completed_flag, true) = true
+          AND COALESCE(response.record_status, 'Active') = 'Active'
+        ORDER BY response.completed_at DESC NULLS LAST, response.response_id DESC;
+    """
+    try:
+        with get_connection() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(query, (student["student_id"],))
+                results = cursor.fetchall()
+    except psycopg.errors.UndefinedTable as error:
+        raise HTTPException(status_code=500, detail="Quiz result tables are missing.") from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=500, detail="Unable to fetch quiz results.") from error
+
+    percentages = [float(item.get("percentage") or 0) for item in results]
+    return {
+        "attempted_count": len(results),
+        "average_percentage": round(sum(percentages) / len(percentages), 2) if percentages else 0,
+        "latest_result": results[0] if results else None,
+        "results": results,
+    }
+
+
 @app.post("/ai/generate-mock-test")
 def generate_ai_mock_test(payload: MockTestGenerationInput):
     question_count = 5
