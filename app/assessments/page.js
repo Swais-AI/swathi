@@ -141,6 +141,40 @@ function MockTestView() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    async function loadMockTestChapters() {
+      setMockTestChapters([]);
+      setChapterId("");
+      setChapterTitle("Select Chapter");
+      setQuestions([]);
+      setPhase("setup");
+      if (!studentEmail || !subjectId) return;
+      setLoadingChapters(true);
+      setError("");
+      try {
+        const params = new URLSearchParams({ email: studentEmail, subject_id: subjectId });
+        const response = await fetch(`${API_BASE_URL}/quiz-chapters?${params.toString()}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load mock-test chapters.");
+        const availableChapters = Array.isArray(data.chapters) ? data.chapters : [];
+        if (!cancelled) {
+          setMockTestChapters(availableChapters);
+          const firstChapter = availableChapters[0];
+          setChapterId(firstChapter ? String(firstChapter.chapter_id) : "");
+          setChapterTitle(firstChapter?.content_title || "Select Chapter");
+          if (availableChapters.length === 0) setError("No linked chapters are available for this subject.");
+        }
+      } catch (loadError) {
+        if (!cancelled) setError(loadError.message || "Unable to load mock-test chapters.");
+      } finally {
+        if (!cancelled) setLoadingChapters(false);
+      }
+    }
+    loadMockTestChapters();
+    return () => { cancelled = true; };
+  }, [studentEmail, subjectId]);
+
+  useEffect(() => {
     if (phase !== "testing") return undefined;
 
     if (timeLeft <= 0) {
@@ -429,40 +463,6 @@ export default function AssessmentsPage() {
     window.addEventListener("popstate", applyRequestedView);
     return () => window.removeEventListener("popstate", applyRequestedView);
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadMockTestChapters() {
-      setMockTestChapters([]);
-      setChapterId("");
-      setChapterTitle("Select Chapter");
-      setQuestions([]);
-      setPhase("setup");
-      if (!studentEmail || !subjectId) return;
-      setLoadingChapters(true);
-      setError("");
-      try {
-        const params = new URLSearchParams({ email: studentEmail, subject_id: subjectId });
-        const response = await fetch(`${API_BASE_URL}/quiz-chapters?${params.toString()}`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load mock-test chapters.");
-        const availableChapters = Array.isArray(data.chapters) ? data.chapters : [];
-        if (!cancelled) {
-          setMockTestChapters(availableChapters);
-          const firstChapter = availableChapters[0];
-          setChapterId(firstChapter ? String(firstChapter.chapter_id) : "");
-          setChapterTitle(firstChapter?.content_title || "Select Chapter");
-          if (availableChapters.length === 0) setError("No linked chapters are available for this subject.");
-        }
-      } catch (loadError) {
-        if (!cancelled) setError(loadError.message || "Unable to load mock-test chapters.");
-      } finally {
-        if (!cancelled) setLoadingChapters(false);
-      }
-    }
-    loadMockTestChapters();
-    return () => { cancelled = true; };
-  }, [studentEmail, subjectId]);
 
   return (
     <DashboardShell>
