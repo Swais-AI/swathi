@@ -2305,6 +2305,10 @@ button {
   gap: 14px;
 }
 
+.assignment-layout {
+  grid-template-columns: minmax(320px, 0.72fr) minmax(480px, 1.28fr);
+}
+
 .bar-chart > .chart-labels {
   position: absolute;
   right: 10px;
@@ -4934,8 +4938,7 @@ button {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.assignment-question-block p,
-.assignment-description-cell {
+.assignment-question-block p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
