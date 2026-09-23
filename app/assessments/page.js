@@ -67,6 +67,9 @@ function formatMockTimer(totalSeconds) {
 }
 
 function MockTestView() {
+  const [studentEmail, setStudentEmail] = useState("");
+  const [subjects, setSubjects] = useState([]);
+  const [subjectId, setSubjectId] = useState("");
   const [mockTestChapters, setMockTestChapters] = useState([]);
   const [chapterId, setChapterId] = useState("");
   const [chapterTitle, setChapterTitle] = useState("Select Chapter");
@@ -96,29 +99,29 @@ function MockTestView() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadMockTestChapters() {
+    async function loadMockTestSubjects() {
       setLoadingChapters(true);
       setError("");
 
       try {
         const email = await getLoggedInUserEmail();
         if (!email) throw new Error("Logged-in student email is unavailable.");
-        const response = await fetch(`${API_BASE_URL}/quiz-chapters?${new URLSearchParams({ email }).toString()}`);
+        const studentResponse = await fetch(`${API_BASE_URL}/students/current?${new URLSearchParams({ email }).toString()}`);
+        const studentData = await studentResponse.json().catch(() => ({}));
+        if (!studentResponse.ok) throw new Error(typeof studentData.detail === "string" ? studentData.detail : "Unable to load student class.");
+        const response = await fetch(`${API_BASE_URL}/subjects?${new URLSearchParams({ class_id: String(studentData.student?.class_id), email }).toString()}`);
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load mock-test chapters.");
+          throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load mock-test subjects.");
         }
 
-        const availableChapters = Array.isArray(data.chapters) ? data.chapters : [];
+        const availableSubjects = Array.isArray(data.subjects) ? data.subjects : [];
         if (!cancelled) {
-          setMockTestChapters(availableChapters);
-          const firstChapter = availableChapters[0];
-          setChapterId(firstChapter ? String(firstChapter.chapter_id) : "");
-          setChapterTitle(firstChapter?.content_title || "Select Chapter");
-          if (availableChapters.length === 0) {
-            setError("No linked chapter content is available for mock-test generation.");
-          }
+          setStudentEmail(email);
+          setSubjects(availableSubjects);
+          setSubjectId(availableSubjects[0] ? String(availableSubjects[0].subject_id) : "");
+          if (availableSubjects.length === 0) setError("No subjects are assigned to this class.");
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -131,7 +134,7 @@ function MockTestView() {
       }
     }
 
-    loadMockTestChapters();
+    loadMockTestSubjects();
     return () => {
       cancelled = true;
     };
@@ -248,6 +251,19 @@ function MockTestView() {
             <div><strong>15 min</strong><span>Duration</span></div>
             <div><strong>5</strong><span>Total Marks</span></div>
           </div>
+
+          <label className="mock-test-chapter-field">
+            <span>Select Subject</span>
+            <AppSelect
+              value={subjectId}
+              options={subjects.map((subject) => ({ value: subject.subject_id, label: subject.subject_name }))}
+              onChange={(value) => setSubjectId(String(value))}
+              disabled={loading || subjects.length === 0}
+              placeholder="Select Subject"
+              ariaLabel="Select mock test subject"
+              searchable
+            />
+          </label>
 
           <label className="mock-test-chapter-field">
             <span>Select Chapter</span>
@@ -413,6 +429,40 @@ export default function AssessmentsPage() {
     window.addEventListener("popstate", applyRequestedView);
     return () => window.removeEventListener("popstate", applyRequestedView);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMockTestChapters() {
+      setMockTestChapters([]);
+      setChapterId("");
+      setChapterTitle("Select Chapter");
+      setQuestions([]);
+      setPhase("setup");
+      if (!studentEmail || !subjectId) return;
+      setLoadingChapters(true);
+      setError("");
+      try {
+        const params = new URLSearchParams({ email: studentEmail, subject_id: subjectId });
+        const response = await fetch(`${API_BASE_URL}/quiz-chapters?${params.toString()}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load mock-test chapters.");
+        const availableChapters = Array.isArray(data.chapters) ? data.chapters : [];
+        if (!cancelled) {
+          setMockTestChapters(availableChapters);
+          const firstChapter = availableChapters[0];
+          setChapterId(firstChapter ? String(firstChapter.chapter_id) : "");
+          setChapterTitle(firstChapter?.content_title || "Select Chapter");
+          if (availableChapters.length === 0) setError("No linked chapters are available for this subject.");
+        }
+      } catch (loadError) {
+        if (!cancelled) setError(loadError.message || "Unable to load mock-test chapters.");
+      } finally {
+        if (!cancelled) setLoadingChapters(false);
+      }
+    }
+    loadMockTestChapters();
+    return () => { cancelled = true; };
+  }, [studentEmail, subjectId]);
 
   return (
     <DashboardShell>

@@ -51,6 +51,15 @@ export default function QuizzesPage() {
   const [loadingChapters, setLoadingChapters] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [savedResults, setSavedResults] = useState({ attempted_count: 0, average_percentage: 0, latest_result: null });
+
+  async function loadSavedResults(email) {
+    if (!email) return;
+    const response = await fetch(`${API_BASE_URL}/quiz-results?${new URLSearchParams({ email }).toString()}`, { cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to load quiz results.");
+    setSavedResults(data);
+  }
 
   const selectedChapter = useMemo(() => {
     return chapters.find((chapter) => String(chapter.chapter_id) === String(chapterId)) || null;
@@ -86,6 +95,7 @@ export default function QuizzesPage() {
           setSubjects(availableSubjects);
           setSubjectId(availableSubjects[0] ? String(availableSubjects[0].subject_id) : "");
           if (availableSubjects.length === 0) setError("No subjects are assigned to this class.");
+          await loadSavedResults(email);
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -247,6 +257,7 @@ export default function QuizzesPage() {
       }
 
       setSubmitted(true);
+      await loadSavedResults(studentEmail);
       setStatus("Quiz auto-corrected and result saved.");
     } catch (saveError) {
       setError(saveError.message || "Unable to save quiz result.");
@@ -392,7 +403,15 @@ export default function QuizzesPage() {
                 <div><span>Score</span><strong className="score-text">{submitted ? `${marks} / ${totalMarks}` : `- / ${totalMarks || 25}`}</strong></div>
                 <div><span>Correct Answers</span><strong>{submitted ? `${score} / ${questions.length}` : "-"}</strong></div>
                 <div><span>Status</span><strong>{submitted ? "Completed" : quizRequested && !error ? "In Progress" : "Pending"}</strong></div>
+                <div><span>Quizzes Attempted</span><strong>{savedResults.attempted_count || 0}</strong></div>
+                <div><span>Average Score</span><strong>{Math.round(savedResults.average_percentage || 0)}%</strong></div>
               </div>
+              {!submitted && savedResults.latest_result && (
+                <div className="quiz-score-card">
+                  <strong>Latest saved result: {savedResults.latest_result.chapter_title}</strong>
+                  <p>{savedResults.latest_result.score} / {savedResults.latest_result.total_marks} ({Math.round(savedResults.latest_result.percentage || 0)}%)</p>
+                </div>
+              )}
               {submitted && (
                 <div className="quiz-score-card">
                   <strong>{marks >= totalMarks * 0.8 ? "Excellent work!" : marks >= totalMarks * 0.6 ? "Good attempt!" : "Keep practicing!"}</strong>
