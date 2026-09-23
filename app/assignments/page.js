@@ -288,14 +288,13 @@ export default function AssignmentsPage() {
                 <span className="status-pill">{assignmentsWithMaterials.length}</span>
               </div>
               <table className="data-table">
-                <thead><tr><th>Assignment</th><th>Questions / Description</th><th>File Name</th><th>Action</th></tr></thead>
+                <thead><tr><th>Assignment</th><th>File Name</th><th>Action</th></tr></thead>
                 <tbody>
                   {assignments.flatMap((assignment) => {
                     const rows = assignment.attachments?.length ? assignment.attachments : [null];
-                    return rows.map((attachment, index) => (
+                    return rows.map((attachment) => (
                     <tr key={attachment?.file_id || `assignment-${assignment.assignment_id}`}>
                       <td data-label="Assignment">{assignment.assignment_title}</td>
-                      <td data-label="Questions / Description" className="assignment-description-cell">{index === 0 ? (assignment.assignment_text || "-") : ""}</td>
                       <td data-label="File Name">{attachment?.file_name || "No attachment"}</td>
                       <td data-label="Action">
                         {attachment ? <a className="table-action" href={attachment.view_url} target="_blank" rel="noreferrer" onClick={() => selectAssignment(assignment)}>
@@ -304,7 +303,7 @@ export default function AssignmentsPage() {
                       </td>
                     </tr>
                   ));})}
-                  {!loading && assignments.length === 0 && <tr><td colSpan="4">No assignments available.</td></tr>}
+                  {!loading && assignments.length === 0 && <tr><td colSpan="3">No assignments available.</td></tr>}
                 </tbody>
               </table>
               <div className="tip-box">Tip: Submit your assignments on time to get early feedback and improve your score!</div>
